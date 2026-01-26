@@ -7,28 +7,31 @@ import { supabase } from "@/lib/supabaseClient";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 
-const FUNCOES = [
-  "CHEFE_DE_DELEGACAO",
-  "TECNICO",
-  "AUXILIAR",
-  "OFICIAL",
-] as const;
-
 const onlyDigits = (v: string) => v.replace(/\D/g, "");
+
+const FUNCOES = ["CHEFE_DE_DELEGACAO", "TECNICO", "AUXILIAR", "OFICIAL"] as const;
+type Funcao = (typeof FUNCOES)[number];
 
 type Equipe = {
   id: number;
   nome: string;
   cpf: string | null;
-  funcao: (typeof FUNCOES)[number] | string;
+  funcao: Funcao;
   status_doc: "PENDENTE" | "CONCLUIDO";
   ativo: boolean;
+
+  email: string | null;
+  telefone: string | null;
+  rg: string | null;
+  orgao_expedidor: string | null;
+  data_nascimento: string | null;
+  cref: string | null;
 };
 
-export default function EditarEquipePage() {
+export default function EditarEquipeTecnicaPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
-  const membroId = Number(params.id);
+  const equipeId = Number(params.id);
 
   const [msg, setMsg] = useState("");
   const [salvando, setSalvando] = useState(false);
@@ -39,11 +42,12 @@ export default function EditarEquipePage() {
   useEffect(() => {
     (async () => {
       setMsg("");
-
       const { data, error } = await supabase
         .from("equipe_tecnica")
-        .select("id,nome,cpf,funcao,status_doc,ativo")
-        .eq("id", membroId)
+        .select(
+          "id,nome,cpf,funcao,status_doc,ativo,email,telefone,rg,orgao_expedidor,data_nascimento,cref"
+        )
+        .eq("id", equipeId)
         .maybeSingle();
 
       if (error) return setMsg("Erro ao carregar: " + error.message);
@@ -51,7 +55,7 @@ export default function EditarEquipePage() {
 
       setForm(data as Equipe);
     })();
-  }, [membroId]);
+  }, [equipeId]);
 
   function set<K extends keyof Equipe>(key: K, value: Equipe[K]) {
     setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
@@ -70,15 +74,18 @@ export default function EditarEquipePage() {
       cpf: onlyDigits(form.cpf ?? "") || null,
       funcao: form.funcao,
       status_doc: form.status_doc,
+
+      email: (form.email ?? "").trim() || null,
+      telefone: onlyDigits(form.telefone ?? "") || null,
+      rg: (form.rg ?? "").trim() || null,
+      orgao_expedidor: (form.orgao_expedidor ?? "").trim() || null,
+      data_nascimento: form.data_nascimento || null,
+      cref: (form.cref ?? "").trim() || null,
     };
 
-    const { error } = await supabase
-      .from("equipe_tecnica")
-      .update(payload)
-      .eq("id", membroId);
+    const { error } = await supabase.from("equipe_tecnica").update(payload).eq("id", equipeId);
 
     setSalvando(false);
-
     if (error) return setMsg("Erro ao salvar: " + error.message);
 
     router.push("/gestor/equipe");
@@ -98,7 +105,7 @@ export default function EditarEquipePage() {
     const { error } = await supabase
       .from("equipe_tecnica")
       .update({ ativo: false })
-      .eq("id", membroId);
+      .eq("id", equipeId);
 
     setExcluindo(false);
 
@@ -110,7 +117,7 @@ export default function EditarEquipePage() {
   if (!form) {
     return (
       <div className="space-y-4">
-        <PageHeader title="Editar membro" subtitle="Carregando..." />
+        <PageHeader title="Editar equipe técnica" subtitle="Carregando..." />
         {msg ? <div className="rounded-xl border bg-white p-3 text-sm">{msg}</div> : null}
       </div>
     );
@@ -119,7 +126,7 @@ export default function EditarEquipePage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Editar • Equipe"
+        title="Editar equipe técnica"
         subtitle={`ID: ${form.id}`}
         right={
           <Link
@@ -140,7 +147,7 @@ export default function EditarEquipePage() {
         </CardHeader>
 
         <CardContent className="grid gap-4 sm:grid-cols-2">
-          <Field label="Nome *" className="sm:col-span-2">
+          <Field label="Nome *">
             <input
               value={form.nome}
               onChange={(e) => set("nome", e.target.value)}
@@ -148,18 +155,10 @@ export default function EditarEquipePage() {
             />
           </Field>
 
-          <Field label="CPF (opcional)">
-            <input
-              value={form.cpf ?? ""}
-              onChange={(e) => set("cpf", e.target.value)}
-              className="h-11 rounded-xl border bg-white px-3 outline-none focus:ring-2"
-            />
-          </Field>
-
           <Field label="Função">
             <select
               value={form.funcao}
-              onChange={(e) => set("funcao", e.target.value)}
+              onChange={(e) => set("funcao", e.target.value as Funcao)}
               className="h-11 rounded-xl border bg-white px-3 outline-none focus:ring-2"
             >
               {FUNCOES.map((f) => (
@@ -170,15 +169,72 @@ export default function EditarEquipePage() {
             </select>
           </Field>
 
-          <Field label="Status documental">
+          <Field label="Status doc">
             <select
               value={form.status_doc}
-              onChange={(e) => set("status_doc", e.target.value as any)}
+              onChange={(e) => set("status_doc", e.target.value as "PENDENTE" | "CONCLUIDO")}
               className="h-11 rounded-xl border bg-white px-3 outline-none focus:ring-2"
             >
               <option value="PENDENTE">PENDENTE</option>
               <option value="CONCLUIDO">CONCLUIDO</option>
             </select>
+          </Field>
+
+          <Field label="CPF">
+            <input
+              value={form.cpf ?? ""}
+              onChange={(e) => set("cpf", e.target.value)}
+              className="h-11 rounded-xl border bg-white px-3 outline-none focus:ring-2"
+            />
+          </Field>
+
+          <Field label="CREF">
+            <input
+              value={form.cref ?? ""}
+              onChange={(e) => set("cref", e.target.value)}
+              className="h-11 rounded-xl border bg-white px-3 outline-none focus:ring-2"
+            />
+          </Field>
+
+          <Field label="Email">
+            <input
+              value={form.email ?? ""}
+              onChange={(e) => set("email", e.target.value)}
+              className="h-11 rounded-xl border bg-white px-3 outline-none focus:ring-2"
+            />
+          </Field>
+
+          <Field label="Telefone">
+            <input
+              value={form.telefone ?? ""}
+              onChange={(e) => set("telefone", e.target.value)}
+              className="h-11 rounded-xl border bg-white px-3 outline-none focus:ring-2"
+            />
+          </Field>
+
+          <Field label="RG">
+            <input
+              value={form.rg ?? ""}
+              onChange={(e) => set("rg", e.target.value)}
+              className="h-11 rounded-xl border bg-white px-3 outline-none focus:ring-2"
+            />
+          </Field>
+
+          <Field label="Órgão expedidor">
+            <input
+              value={form.orgao_expedidor ?? ""}
+              onChange={(e) => set("orgao_expedidor", e.target.value)}
+              className="h-11 rounded-xl border bg-white px-3 outline-none focus:ring-2"
+            />
+          </Field>
+
+          <Field label="Data de nascimento">
+            <input
+              type="date"
+              value={form.data_nascimento ?? ""}
+              onChange={(e) => set("data_nascimento", e.target.value)}
+              className="h-11 rounded-xl border bg-white px-3 outline-none focus:ring-2"
+            />
           </Field>
 
           {/* Botões */}
@@ -188,7 +244,7 @@ export default function EditarEquipePage() {
               disabled={excluindo || salvando}
               className="inline-flex h-11 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:opacity-60"
             >
-              {excluindo ? "Excluindo..." : "Excluir"}
+              {excluindo ? "Excluindo..." : "Excluir (desativar)"}
             </button>
 
             <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
