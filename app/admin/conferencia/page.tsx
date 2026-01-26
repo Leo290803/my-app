@@ -3,24 +3,35 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../../lib/supabaseClient";
 
-type Escola = { id: number; nome: string; municipio_id: number | null; municipios?: { nome: string } | null };
+type Escola = {
+  id: number;
+  nome: string;
+  municipio_id: number | null;
+  municipios?: { nome: string } | null;
+};
+
 type Municipio = { id: number; nome: string };
 
 type Row = {
-  id: number;
+  id: number; // id da linha em participante_arquivos (via view conferencia_itens)
   participante_tipo: string | null; // ATLETA / TECNICO / OFICIAL / CHEFE / etc
   participante_id: number | null;
   escola_id: number | null;
+
   status: "PENDENTE" | "CONCLUIDO" | "REJEITADO";
+
   foto_url: string | null;
   ficha_url: string | null;
   doc_url: string | null;
-  observacao: string | null; // do gestor (se usar)
+
+  observacao: string | null;
   observacao_admin: string | null;
+
   created_at: string;
   updated_at: string;
+
   participante_nome: string | null;
-escola_nome?: string | null;
+  escola_nome?: string | null;
   municipio_nome?: string | null;
 };
 
@@ -37,8 +48,8 @@ export default function AdminConferenciaPage() {
   const [fMunicipio, setFMunicipio] = useState<string>("");
   const [fEscola, setFEscola] = useState<string>("");
   const [fTipo, setFTipo] = useState<string>("");
-  const [fStatus, setFStatus] = useState<string>("");
-  const [buscaId, setBuscaId] = useState<string>(""); // busca por participante_id (rápido e confiável)
+  const [fStatus, setFStatus] = useState<Row["status"] | "">("PENDENTE"); // ✅ padrão
+  const [buscaId, setBuscaId] = useState<string>(""); // busca por participante_id
 
   // seleção em lote
   const [selecionados, setSelecionados] = useState<Set<number>>(new Set());
@@ -74,6 +85,10 @@ export default function AdminConferenciaPage() {
     setSelecionados(new Set());
   }
 
+  function chipOk(url: string | null) {
+    return url ? "✅" : "—";
+  }
+
   async function carregarFiltros() {
     setMsg("");
 
@@ -81,11 +96,7 @@ export default function AdminConferenciaPage() {
     if (m.error) setMsg("Erro municípios: " + m.error.message);
     setMunicipios((m.data ?? []) as any);
 
-    const e = await supabase
-      .from("escolas")
-      .select("id, nome, municipio_id, municipios(nome)")
-      .order("nome");
-
+    const e = await supabase.from("escolas").select("id, nome, municipio_id, municipios(nome)").order("nome");
     if (e.error) setMsg("Erro escolas: " + e.error.message);
     setEscolas((e.data ?? []) as any);
   }
@@ -95,20 +106,18 @@ export default function AdminConferenciaPage() {
     setLoading(true);
     setSelecionados(new Set());
 
-let q = supabase
-  .from("conferencia_itens")
-  .select(
-    "id, participante_tipo, participante_id, participante_nome, escola_id, escola_nome, municipio_nome, status, foto_url, ficha_url, doc_url, observacao, observacao_admin, created_at, updated_at"
-  )
-  .order("updated_at", { ascending: false })
-  .limit(500);
-
+    let q = supabase
+      .from("conferencia_itens")
+      .select(
+        "id, participante_tipo, participante_id, participante_nome, escola_id, escola_nome, municipio_nome, status, foto_url, ficha_url, doc_url, observacao, observacao_admin, created_at, updated_at"
+      )
+      .order("updated_at", { ascending: false })
+      .limit(500);
 
     const mid = Number(fMunicipio);
     const eid = Number(fEscola);
 
     if (eid) q = q.eq("escola_id", eid);
-    // se escolheu município e não escolheu escola: filtra por escolas daquele município (client-side)
     if (fStatus) q = q.eq("status", fStatus);
     if (fTipo) q = q.eq("participante_tipo", fTipo);
 
@@ -126,6 +135,7 @@ let q = supabase
 
     let list = (data ?? []) as Row[];
 
+    // se escolheu município e não escolheu escola: filtra por escolas daquele município (client-side)
     if (mid && !eid) {
       const escolasDoMunicipio = new Set(escolas.filter((x) => x.municipio_id === mid).map((x) => x.id));
       list = list.filter((r) => (r.escola_id ? escolasDoMunicipio.has(r.escola_id) : false));
@@ -141,11 +151,12 @@ let q = supabase
 
     const payload: any = { status, observacao_admin: obsAdmin ?? null };
 
+    // ✅ importante: aqui a gente atualiza a tabela real
     const { error } = await supabase.from("participante_arquivos").update(payload).in("id", ids);
     if (error) return setMsg("Erro ao atualizar: " + error.message);
 
     setMsg(`Atualizado ✅ (${ids.length}) → ${status}`);
-    carregar();
+    await carregar();
   }
 
   async function concluirSelecionados() {
@@ -163,23 +174,10 @@ let q = supabase
     await setStatus(Array.from(selecionados), "REJEITADO", obs.trim());
   }
 
-  function escolaLabel(id: number | null) {
-    if (!id) return "—";
-    const e = escolas.find((x) => x.id === id);
-    if (!e) return `#${id}`;
-    const mun = e.municipios?.nome ? ` • ${e.municipios.nome}` : "";
-    return `${e.nome}${mun}`;
-  }
-
-  function chipOk(url: string | null) {
-    return url ? "✅" : "—";
-  }
-
   useEffect(() => {
     carregarFiltros();
   }, []);
 
-  // recarrega ao mudar filtros principais (com um pequeno “debounce” simples)
   useEffect(() => {
     const t = setTimeout(() => carregar(), 250);
     return () => clearTimeout(t);
@@ -259,7 +257,7 @@ let q = supabase
 
         <div>
           <div style={{ fontSize: 12, opacity: 0.8 }}>Status</div>
-          <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} style={{ padding: 10, width: "100%" }}>
+          <select value={fStatus} onChange={(e) => setFStatus(e.target.value as any)} style={{ padding: 10, width: "100%" }}>
             <option value="PENDENTE">PENDENTE</option>
             <option value="CONCLUIDO">CONCLUIDO</option>
             <option value="REJEITADO">REJEITADO</option>
@@ -313,7 +311,7 @@ let q = supabase
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "60px 90px 1fr 90px 90px 90px 120px 220px",
+            gridTemplateColumns: "70px 90px 1.2fr 1.6fr 90px 90px 90px 120px 280px",
             gap: 0,
             padding: 10,
             background: "#fafafa",
@@ -323,6 +321,7 @@ let q = supabase
         >
           <div>#</div>
           <div>Tipo</div>
+          <div>Participante</div>
           <div>Escola</div>
           <div>Foto</div>
           <div>Ficha</div>
@@ -336,7 +335,7 @@ let q = supabase
             key={r.id}
             style={{
               display: "grid",
-              gridTemplateColumns: "60px 90px 1fr 90px 90px 90px 120px 220px",
+              gridTemplateColumns: "70px 90px 1.2fr 1.6fr 90px 90px 90px 120px 280px",
               padding: 10,
               borderBottom: "1px solid #eee",
               alignItems: "center",
@@ -350,13 +349,15 @@ let q = supabase
 
             <div>{r.participante_tipo ?? "—"}</div>
 
-<div style={{ fontWeight: 800 }}>
-  {r.participante_nome ?? `ID ${r.participante_id ?? "—"}`}
-</div>
-<div style={{ fontSize: 12, opacity: 0.75 }}>
-  {r.escola_nome ?? "—"} • {r.municipio_nome ?? "—"}
-</div>
+            <div>
+              <div style={{ fontWeight: 800 }}>{r.participante_nome ?? `ID ${r.participante_id ?? "—"}`}</div>
+              <div style={{ fontSize: 12, opacity: 0.75 }}>participante_id: {r.participante_id ?? "—"}</div>
+            </div>
 
+            <div>
+              <div style={{ fontWeight: 800 }}>{r.escola_nome ?? "—"}</div>
+              <div style={{ fontSize: 12, opacity: 0.75 }}>{r.municipio_nome ?? "—"}</div>
+            </div>
 
             <div>{chipOk(r.foto_url)}</div>
             <div>{chipOk(r.ficha_url)}</div>
@@ -381,10 +382,7 @@ let q = supabase
                 </a>
               )}
 
-              <button
-                onClick={() => setStatus([r.id], "CONCLUIDO")}
-                style={{ padding: 8, borderRadius: 8, cursor: "pointer" }}
-              >
+              <button onClick={() => setStatus([r.id], "CONCLUIDO")} style={{ padding: 8, borderRadius: 8, cursor: "pointer" }}>
                 Concluir
               </button>
 
