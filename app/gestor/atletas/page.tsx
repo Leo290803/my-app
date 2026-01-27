@@ -4,275 +4,243 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { Card, CardContent, CardHeader } from "@/components/ui/Card";
+import { Card, CardContent } from "@/components/ui/Card";
 
-type Perfil = {
-  escola_id: number | null;
-  municipio_id: number | null;
-  tipo: "ADMIN" | "GESTOR";
-};
+type Perfil = { escola_id: number; municipio_id: number };
+
+type DocStatus = "PENDENTE" | "CONCLUIDO" | "REJEITADO";
 
 type Atleta = {
   id: number;
   nome: string;
-  cpf: string | null;
-  data_nascimento: string;
   sexo: "M" | "F";
-  status_doc: "PENDENTE" | "CONCLUIDO";
   ativo: boolean;
+  doc_status?: DocStatus;
 };
 
-function calcCategoria(dataNascimento: string) {
-  const hoje = new Date();
-  const dn = new Date(dataNascimento);
-  let idade = hoje.getFullYear() - dn.getFullYear();
-  const m = hoje.getMonth() - dn.getMonth();
-  if (m < 0 || (m === 0 && hoje.getDate() < dn.getDate())) idade--;
-  if (idade >= 12 && idade <= 14) return "12–14";
-  if (idade >= 15 && idade <= 17) return "15–17";
-  return "Fora da faixa";
-}
-
-const PAGE_SIZE = 15;
-
-export default function GestorAtletasListaPage() {
-  const [perfil, setPerfil] = useState<Perfil | null>(null);
-  const [lista, setLista] = useState<Atleta[]>([]);
+export default function AtletasPage() {
   const [msg, setMsg] = useState("");
-
-  const [q, setQ] = useState("");
-  const [page, setPage] = useState(1);
-
-  async function carregarPerfil() {
-    const { data, error } = await supabase
-      .from("perfis")
-      .select("escola_id, municipio_id, tipo")
-      .maybeSingle();
-
-    if (error) return setMsg("Erro ao carregar perfil: " + error.message);
-    if (!data?.escola_id) return setMsg("Perfil sem escola. Fale com o Admin.");
-
-    setPerfil(data as Perfil);
-  }
-
-async function carregarAtletas(escolaId: number) {
-  const { data, error } = await supabase
-    .from("atletas")
-    .select("id, nome, cpf, data_nascimento, sexo, status_doc, ativo")
-    .eq("escola_id", escolaId)
-    .eq("ativo", true) // 👈 ISSO AQUI
-    .order("nome");
-
-  if (error) {
-    setMsg("Erro ao carregar atletas: " + error.message);
-    return;
-  }
-
-  setLista(data ?? []);
-}
+  const [perfil, setPerfil] = useState<Perfil | null>(null);
+  const [atletas, setAtletas] = useState<Atleta[]>([]);
+  const [busca, setBusca] = useState("");
+  const [carregando, setCarregando] = useState(false);
+  const [excluindoId, setExcluindoId] = useState<number | null>(null);
+  const [mostrarInativos, setMostrarInativos] = useState(false);
 
   useEffect(() => {
-    carregarPerfil();
+    (async () => {
+      setMsg("");
+      const { data, error } = await supabase
+        .from("perfis")
+        .select("escola_id, municipio_id")
+        .maybeSingle();
+
+      if (error) return setMsg("Erro ao carregar perfil: " + error.message);
+      if (!data?.escola_id) return setMsg("Seu perfil está sem escola.");
+      setPerfil(data as Perfil);
+    })();
   }, []);
 
   useEffect(() => {
-    if (perfil?.escola_id) carregarAtletas(perfil.escola_id);
+    if (!perfil?.escola_id) return;
+    carregar(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [perfil?.escola_id]);
 
-  // filtro local (rápido e sem custo no banco)
+  async function carregar(silencioso = false) {
+    if (!perfil?.escola_id) return;
+
+    setCarregando(true);
+    if (!silencioso) setMsg(""); // ✅ não apaga msg quando a gente quiser manter
+
+    const { data, error } = await supabase
+      .from("atletas")
+      .select("id, nome, sexo, ativo")
+      .eq("escola_id", perfil.escola_id)
+      .order("nome");
+
+    if (error) {
+      setCarregando(false);
+      return setMsg("Erro ao carregar atletas: " + error.message);
+    }
+
+    const base = (data ?? []) as Atleta[];
+    const ids = base.map((a) => a.id);
+
+    // status docs em participante_arquivos
+    const statusById = new Map<number, DocStatus>();
+    if (ids.length > 0) {
+      const { data: arqs, error: aErr } = await supabase
+        .from("participante_arquivos")
+        .select("participante_id, status")
+        .eq("escola_id", perfil.escola_id)
+        .eq("participante_tipo", "ATLETA")
+        .in("participante_id", ids);
+
+      if (aErr) console.warn("Erro ao carregar status docs:", aErr.message);
+
+      (arqs ?? []).forEach((r: any) => {
+        statusById.set(Number(r.participante_id), (r.status ?? "PENDENTE") as DocStatus);
+      });
+    }
+
+    const merged = base.map((a) => ({
+      ...a,
+      doc_status: statusById.get(a.id) ?? "PENDENTE",
+    }));
+
+    setAtletas(merged);
+    setCarregando(false);
+  }
+
+  async function excluirAtleta(atletaId: number) {
+    if (!perfil?.escola_id) return;
+
+    const atleta = atletas.find((a) => a.id === atletaId);
+    const ok = window.confirm(
+      `Tem certeza que deseja excluir (desativar) o atleta "${atleta?.nome ?? atletaId}"?\n\nIsso vai marcar como INATIVO (não apaga do sistema).`
+    );
+    if (!ok) return;
+
+    setExcluindoId(atletaId);
+    setMsg("");
+
+    // ✅ tenta desativar
+    const { data, error } = await supabase
+      .from("atletas")
+      .update({ ativo: false })
+      .eq("id", atletaId)
+      .eq("escola_id", perfil.escola_id)
+      .select("id, ativo")
+      .maybeSingle();
+
+    setExcluindoId(null);
+
+    if (error) {
+      console.error("Erro ao excluir:", error);
+      return setMsg("Erro ao excluir: " + error.message);
+    }
+
+    if (!data?.id) {
+      console.warn("Nenhuma linha atualizada. Possível RLS bloqueando UPDATE.");
+      return setMsg("Não foi possível desativar. Verifique permissões (RLS) no Supabase.");
+    }
+
+    // ✅ atualiza a tela sem depender do reload
+    setAtletas((prev) =>
+      prev.map((a) => (a.id === atletaId ? { ...a, ativo: false } : a))
+    );
+
+    // ✅ se não estiver mostrando inativos, remove da lista na hora
+    if (!mostrarInativos) {
+      setAtletas((prev) => prev.filter((a) => a.id !== atletaId));
+    }
+
+    setMsg("Atleta desativado ✅");
+  }
+
   const filtrados = useMemo(() => {
-    const term = q.trim().toLowerCase();
-    if (!term) return lista;
-    return lista.filter((a) => {
-      const nome = (a.nome ?? "").toLowerCase();
-      const cpf = (a.cpf ?? "").toLowerCase();
-      return nome.includes(term) || cpf.includes(term);
-    });
-  }, [lista, q]);
+    const b = busca.toLowerCase().trim();
 
-  // paginação
-  const totalPages = useMemo(() => {
-    return Math.max(1, Math.ceil(filtrados.length / PAGE_SIZE));
-  }, [filtrados.length]);
+    let lista = atletas;
+    if (!mostrarInativos) lista = lista.filter((a) => a.ativo);
 
-  const paginaAtual = useMemo(() => {
-    const start = (page - 1) * PAGE_SIZE;
-    return filtrados.slice(start, start + PAGE_SIZE);
-  }, [filtrados, page]);
-
-  // se pesquisar e reduzir a lista, garantir página válida
-  useEffect(() => {
-    setPage(1);
-  }, [q]);
+    if (!b) return lista;
+    return lista.filter((a) => a.nome.toLowerCase().includes(b));
+  }, [atletas, busca, mostrarInativos]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
-        title="Gestor • Atletas"
-        subtitle="Lista de atletas da sua escola"
+        title="Atletas"
+        subtitle="Gerencie os atletas da sua escola"
         right={
           <Link
             href="/gestor/atletas/novo"
             className="inline-flex h-10 items-center justify-center rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800"
           >
-            + Adicionar atleta
+            + Novo atleta
           </Link>
         }
       />
 
+      {msg ? <div className="rounded-xl border bg-white p-3 text-sm">{msg}</div> : null}
+
       <Card>
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="font-semibold">Atletas</div>
-            <div className="text-sm text-zinc-600">
-              {filtrados.length} encontrado(s)
-              {q.trim() ? ` • filtro: “${q.trim()}”` : ""}
-            </div>
-          </div>
-
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+        <CardContent className="space-y-3 p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none focus:ring-2 sm:w-[260px]"
-              placeholder="Pesquisar por nome ou CPF…"
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar atleta..."
+              className="h-11 w-full rounded-xl border bg-white px-3 outline-none focus:ring-2 sm:max-w-md"
             />
-            <button
-              onClick={() => carregarAtletas(perfil?.escola_id ?? 0)}
-              className="inline-flex h-10 items-center justify-center rounded-xl border bg-white px-4 text-sm font-semibold hover:bg-zinc-50"
-            >
-              Atualizar
-            </button>
-          </div>
-        </CardHeader>
 
-        <CardContent>
-          {msg ? <div className="mb-3 text-sm text-zinc-700">{msg}</div> : null}
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={mostrarInativos}
+                  onChange={(e) => setMostrarInativos(e.target.checked)}
+                />
+                Mostrar inativos
+              </label>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-left text-zinc-600">
-                <tr className="border-b">
-                  <th className="py-2 pr-3">Atleta</th>
-                  <th className="py-2 pr-3">Sexo</th>
-                  <th className="py-2 pr-3">Doc</th>
-                  <th className="py-2 pr-3">Status</th>
-                  <th className="py-2 text-right">Ações</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {paginaAtual.map((a) => (
-                  <tr key={a.id} className="border-b last:border-0">
-                    <td className="py-2 pr-3">
-                      <div className="font-medium">{a.nome}</div>
-                      <div className="text-xs text-zinc-600">
-                        CPF: {a.cpf ?? "—"} • Nasc.: {a.data_nascimento} • Categoria:{" "}
-                        {calcCategoria(a.data_nascimento)}
-                      </div>
-                    </td>
-
-                    <td className="py-2 pr-3">{a.sexo === "M" ? "Masculino" : "Feminino"}</td>
-
-                    <td className="py-2 pr-3">
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                          a.status_doc === "CONCLUIDO"
-                            ? "bg-emerald-50 text-emerald-800"
-                            : "bg-yellow-50 text-yellow-800"
-                        }`}
-                      >
-                        {a.status_doc}
-                      </span>
-                    </td>
-
-                    <td className="py-2 pr-3">{a.ativo ? "Ativo" : "Inativo"}</td>
-
-                    <td className="py-2 text-right">
-                      <Link
-                        href={`/gestor/atletas/${a.id}/editar`}
-                        className="inline-flex h-9 items-center justify-center rounded-xl border bg-white px-3 text-xs font-semibold hover:bg-zinc-50"
-                      >
-                        Editar
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-
-                {filtrados.length === 0 ? (
-                  <tr>
-                    <td className="py-3 text-zinc-600" colSpan={5}>
-                      Nenhum atleta encontrado.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Paginação */}
-          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="text-sm text-zinc-600">
-              Página <span className="font-semibold">{page}</span> de{" "}
-              <span className="font-semibold">{totalPages}</span>
+              <button
+                onClick={() => carregar(false)}
+                className="inline-flex h-11 items-center justify-center rounded-xl border bg-white px-4 text-sm font-semibold hover:bg-zinc-50"
+              >
+                Recarregar
+              </button>
             </div>
+          </div>
 
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setPage(1)}
-                disabled={page === 1}
-                className="h-10 rounded-xl border bg-white px-3 text-sm font-semibold disabled:opacity-50"
-              >
-                « Primeira
-              </button>
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="h-10 rounded-xl border bg-white px-3 text-sm font-semibold disabled:opacity-50"
-              >
-                ‹ Anterior
-              </button>
+          {carregando ? (
+            <div className="py-6 text-sm opacity-70">Carregando...</div>
+          ) : filtrados.length === 0 ? (
+            <div className="py-6 text-sm opacity-70">Nenhum atleta encontrado.</div>
+          ) : (
+            <div className="divide-y rounded-xl border">
+              {filtrados.map((a) => (
+                <div key={a.id} className="flex items-center justify-between gap-3 p-3">
+                  <div className="min-w-0">
+                    <div className="truncate font-semibold">{a.nome}</div>
+                    <div className="text-xs opacity-70">
+                      {a.sexo === "M" ? "Masculino" : "Feminino"} • Docs:{" "}
+                      <b>{a.doc_status ?? "PENDENTE"}</b> • {a.ativo ? "Ativo" : "Inativo"}
+                    </div>
+                  </div>
 
-              {makePages(page, totalPages).map((p) => (
-                <button
-                  key={p}
-                  onClick={() => setPage(p)}
-                  className={`h-10 rounded-xl border px-3 text-sm font-semibold ${
-                    p === page ? "bg-blue-700 text-white border-blue-700" : "bg-white hover:bg-zinc-50"
-                  }`}
-                >
-                  {p}
-                </button>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      href={`/gestor/atletas/${a.id}/editar`}
+                      className="inline-flex h-9 items-center justify-center rounded-xl border bg-white px-3 text-sm font-semibold hover:bg-zinc-50"
+                    >
+                      Ver
+                    </Link>
+
+                    <Link
+                      href={`/gestor/atletas/${a.id}/editar`}
+                      className="inline-flex h-9 items-center justify-center rounded-xl border bg-white px-3 text-sm font-semibold hover:bg-zinc-50"
+                    >
+                      Editar
+                    </Link>
+
+                    <button
+                      onClick={() => excluirAtleta(a.id)}
+                      disabled={excluindoId === a.id}
+                      className="inline-flex h-9 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:opacity-60"
+                      title="Desativar atleta"
+                    >
+                      {excluindoId === a.id ? "..." : "Excluir"}
+                    </button>
+                  </div>
+                </div>
               ))}
-
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-                className="h-10 rounded-xl border bg-white px-3 text-sm font-semibold disabled:opacity-50"
-              >
-                Próxima ›
-              </button>
-              <button
-                onClick={() => setPage(totalPages)}
-                disabled={page === totalPages}
-                className="h-10 rounded-xl border bg-white px-3 text-sm font-semibold disabled:opacity-50"
-              >
-                Última »
-              </button>
             </div>
-          </div>
+          )}
         </CardContent>
       </Card>
     </div>
   );
-}
-
-// mostra páginas próximas (ex.: 1 2 3 4 5)
-function makePages(current: number, total: number) {
-  const delta = 2;
-  const start = Math.max(1, current - delta);
-  const end = Math.min(total, current + delta);
-  const pages: number[] = [];
-  for (let i = start; i <= end; i++) pages.push(i);
-  return pages;
 }

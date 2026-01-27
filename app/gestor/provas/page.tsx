@@ -28,9 +28,11 @@ type EventoProva = {
   provas?: { nome: string } | null;
 };
 
-type Atleta = { id: number; nome: string; sexo: "M" | "F" };
+type DocStatus = "PENDENTE" | "CONCLUIDO" | "REJEITADO";
 
-type Inscricao = { id: number; atleta_id: number; status: "ATIVA" | "CANCELADA" };
+type Atleta = { id: number; nome: string; sexo: "M" | "F"; doc_status?: DocStatus | null };
+
+type Inscrito = { id: number; atleta_id: number; status: string };
 
 export default function GestorProvasPage() {
   const [msg, setMsg] = useState("");
@@ -38,78 +40,85 @@ export default function GestorProvasPage() {
   const [perfil, setPerfil] = useState<Perfil | null>(null);
 
   const [eventos, setEventos] = useState<Evento[]>([]);
+  const [eventoId, setEventoId] = useState("");
+
   const [modalidades, setModalidades] = useState<Modalidade[]>([]);
-  const [ems, setEms] = useState<EventoModalidade[]>([]);
-  const [eps, setEps] = useState<EventoProva[]>([]);
+  const [eventoModalidades, setEventoModalidades] = useState<EventoModalidade[]>([]);
+  const [emId, setEmId] = useState("");
+
+  const [provas, setProvas] = useState<Prova[]>([]);
+  const [eventoProvas, setEventoProvas] = useState<EventoProva[]>([]);
+  const [fEpId, setFEpId] = useState("");
 
   const [atletas, setAtletas] = useState<Atleta[]>([]);
-  const [inscritos, setInscritos] = useState<Inscricao[]>([]);
-
-  const [fEventoId, setFEventoId] = useState<string>("");
-  const [fModalidadeId, setFModalidadeId] = useState<string>("");
-  const [fEmId, setFEmId] = useState<string>("");
-  const [fEpId, setFEpId] = useState<string>("");
+  const [inscritos, setInscritos] = useState<Inscrito[]>([]);
 
   const [busca, setBusca] = useState("");
 
-  const emFiltradas = useMemo(() => {
-    const eid = Number(fEventoId);
-    const mid = Number(fModalidadeId);
-    return ems.filter((x) => (!eid || x.evento_id === eid) && (!mid || x.modalidade_id === mid));
-  }, [ems, fEventoId, fModalidadeId]);
+  // -------- base --------
+  useEffect(() => {
+    (async () => {
+      setMsg("");
+      const { data, error } = await supabase.from("perfis").select("escola_id, municipio_id").maybeSingle();
+      if (error) return setMsg("Erro perfil: " + error.message);
+      if (!data?.escola_id) return setMsg("Perfil sem escola.");
+      setPerfil(data as any);
 
-  const epsFiltradas = useMemo(() => {
-    const emid = Number(fEmId);
-    if (!emid) return [];
-    return eps.filter((x) => x.evento_modalidade_id === emid && x.ativo);
-  }, [eps, fEmId]);
+      await carregarEventos();
+      await carregarModalidades();
+      await carregarProvas();
+    })();
+  }, []);
 
-  const epAtual = useMemo(() => {
-    const id = Number(fEpId);
-    return eps.find((x) => x.id === id) || null;
-  }, [eps, fEpId]);
-
-  const inscritosSet = useMemo(() => new Set(inscritos.filter(i => i.status === "ATIVA").map(i => i.atleta_id)), [inscritos]);
-
-  const atletasFiltrados = useMemo(() => {
-    const b = busca.trim().toLowerCase();
-    const base = atletas.filter((a) => !inscritosSet.has(a.id));
-    if (!b) return base;
-    return base.filter((a) => a.nome.toLowerCase().includes(b));
-  }, [atletas, busca, inscritosSet]);
-
-  async function carregarPerfil() {
-    const { data, error } = await supabase
-      .from("perfis")
-      .select("escola_id, municipio_id")
-      .maybeSingle();
-
-    if (error) return setMsg("Erro perfil: " + error.message);
-    if (!data?.escola_id || !data?.municipio_id) return setMsg("Perfil sem escola/município.");
-    setPerfil(data as Perfil);
+  async function carregarEventos() {
+    const { data, error } = await supabase.from("eventos").select("id, nome, municipio_id").order("id", { ascending: false });
+    if (error) return setMsg("Erro eventos: " + error.message);
+    setEventos((data ?? []) as any);
   }
 
-  async function carregarListas() {
-    // eventos do município do gestor (ou todos se evento tiver municipio null)
-    const ev = await supabase
-      .from("eventos")
-      .select("id, nome, municipio_id")
-      .order("created_at", { ascending: false });
+  async function carregarModalidades() {
+    const { data, error } = await supabase.from("modalidades").select("id, nome, tipo").order("nome");
+    if (error) return setMsg("Erro modalidades: " + error.message);
+    setModalidades((data ?? []) as any);
+  }
 
-    if (ev.error) setMsg("Erro eventos: " + ev.error.message);
-    setEventos((ev.data ?? []) as any);
+  async function carregarProvas() {
+    const { data, error } = await supabase.from("provas").select("id, nome, modalidade_id").order("nome");
+    if (error) return setMsg("Erro provas: " + error.message);
+    setProvas((data ?? []) as any);
+  }
 
-    const mod = await supabase.from("modalidades").select("id, nome, tipo").order("nome");
-    setModalidades((mod.data ?? []) as any);
+  async function carregarEventoModalidades(evId: number) {
+    setEventoModalidades([]);
+    setEmId("");
+    setEventoProvas([]);
+    setFEpId("");
+    setInscritos([]);
 
-    const em = await supabase.from("evento_modalidades").select("id, evento_id, modalidade_id, categoria, naipe");
-    setEms((em.data ?? []) as any);
+    const { data, error } = await supabase
+      .from("evento_modalidades")
+      .select("id, evento_id, modalidade_id, categoria, naipe")
+      .eq("evento_id", evId)
+      .order("id");
 
-    const ep = await supabase
+    if (error) return setMsg("Erro evento_modalidades: " + error.message);
+    setEventoModalidades((data ?? []) as any);
+  }
+
+  async function carregarEventoProvas(emIdNum: number) {
+    setEventoProvas([]);
+    setFEpId("");
+    setInscritos([]);
+
+    const { data, error } = await supabase
       .from("evento_provas")
       .select("id, evento_modalidade_id, prova_id, max_por_escola, min_por_escola, ativo, provas(nome)")
+      .eq("evento_modalidade_id", emIdNum)
+      .eq("ativo", true)
       .order("id");
-    setEps((ep.data ?? []) as any);
+
+    if (error) return setMsg("Erro evento_provas: " + error.message);
+    setEventoProvas((data ?? []) as any);
   }
 
   async function carregarAtletas(escolaId: number) {
@@ -121,7 +130,32 @@ export default function GestorProvasPage() {
       .order("nome");
 
     if (error) return setMsg("Erro atletas: " + error.message);
-    setAtletas((data ?? []) as any);
+
+    const atletasBase = (data ?? []) as any[];
+    const ids = atletasBase.map((a) => a.id);
+
+    let statusById = new Map<number, DocStatus>();
+    if (ids.length > 0) {
+      const { data: arqs, error: aErr } = await supabase
+        .from("participante_arquivos")
+        .select("participante_id, status")
+        .eq("escola_id", escolaId)
+        .eq("participante_tipo", "ATLETA")
+        .in("participante_id", ids);
+
+      if (aErr) console.warn("Erro status docs:", aErr.message);
+
+      (arqs ?? []).forEach((r: any) => {
+        statusById.set(Number(r.participante_id), (r.status ?? "PENDENTE") as DocStatus);
+      });
+    }
+
+    const merged = atletasBase.map((a) => ({
+      ...a,
+      doc_status: statusById.get(Number(a.id)) ?? ("PENDENTE" as DocStatus),
+    }));
+
+    setAtletas(merged as any);
   }
 
   async function carregarInscritos(epId: number) {
@@ -140,16 +174,24 @@ export default function GestorProvasPage() {
     setMsg("");
     if (!perfil) return;
 
+    const atleta = atletas.find((x) => x.id === atletaId);
+    if (atleta && atleta.doc_status !== "CONCLUIDO") {
+      return setMsg(
+        `Atleta com documentos ${atleta.doc_status ?? "PENDENTE"}. Regularize (Foto/Identidade) e aguarde a conferência para poder inscrever.`
+      );
+    }
+
     const epId = Number(fEpId);
     if (!epId) return setMsg("Selecione uma prova.");
-    const ep = epAtual;
-    if (!ep) return setMsg("Config da prova não encontrada.");
 
-    // valida limite por escola
-    const usados = inscritos.filter((i) => i.status === "ATIVA").length;
-    if (usados >= ep.max_por_escola) {
-      return setMsg(`Limite atingido: ${usados}/${ep.max_por_escola} para esta prova.`);
-    }
+    const epAtual = eventoProvas.find((x) => x.id === epId);
+    if (!epAtual) return setMsg("Prova inválida.");
+
+    const ativos = inscritos.filter((i) => i.status === "ATIVA").length;
+    if (epAtual.max_por_escola > 0 && ativos >= epAtual.max_por_escola) return setMsg("Limite por escola atingido.");
+
+    const jaTem = inscritos.some((i) => i.atleta_id === atletaId && i.status === "ATIVA");
+    if (jaTem) return setMsg("Atleta já inscrito nesta prova.");
 
     const { error } = await supabase.from("inscricoes_provas").insert({
       evento_prova_id: epId,
@@ -160,111 +202,151 @@ export default function GestorProvasPage() {
 
     if (error) return setMsg("Erro ao inscrever: " + error.message);
 
-    setMsg("Inscrição realizada ✅");
-    carregarInscritos(epId);
+    setMsg("Inscrito ✅");
+    await carregarInscritos(epId);
   }
 
-  async function cancelar(inscId: number) {
-    const { error } = await supabase.from("inscricoes_provas").update({ status: "CANCELADA" }).eq("id", inscId);
-    if (error) return setMsg("Erro ao cancelar: " + error.message);
-    setMsg("Cancelada ✅");
-    carregarInscritos(Number(fEpId));
-  }
-
-  function atletaNome(id: number) {
-    return atletas.find((a) => a.id === id)?.nome ?? `Atleta #${id}`;
-  }
-
-  useEffect(() => {
-    carregarPerfil();
-  }, []);
-
-  useEffect(() => {
-    carregarListas();
-  }, []);
-
-  useEffect(() => {
-    if (!perfil) return;
-    carregarAtletas(perfil.escola_id);
-  }, [perfil]);
-
-  useEffect(() => {
-    // reset em/prova quando muda evento/modalidade
-    setFEmId("");
-    setFEpId("");
-    setInscritos([]);
-  }, [fEventoId, fModalidadeId]);
-
-  useEffect(() => {
-    // reset prova quando muda EM
-    setFEpId("");
-    setInscritos([]);
-  }, [fEmId]);
-
-  useEffect(() => {
+  async function cancelar(id: number) {
+    setMsg("");
     const epId = Number(fEpId);
-    setInscritos([]);
     if (!epId) return;
-    carregarInscritos(epId);
+
+    const { error } = await supabase.from("inscricoes_provas").update({ status: "CANCELADA" }).eq("id", id);
+    if (error) return setMsg("Erro ao cancelar: " + error.message);
+
+    setMsg("Cancelado ✅");
+    await carregarInscritos(epId);
+  }
+
+  // -------- effects --------
+  useEffect(() => {
+    (async () => {
+      setMsg("");
+      if (!perfil?.escola_id) return;
+      await carregarAtletas(perfil.escola_id);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [perfil?.escola_id]);
+
+  useEffect(() => {
+    (async () => {
+      setMsg("");
+      const evId = Number(eventoId);
+      if (!evId) return;
+      await carregarEventoModalidades(evId);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventoId]);
+
+  useEffect(() => {
+    (async () => {
+      setMsg("");
+      const emIdNum = Number(emId);
+      if (!emIdNum) return;
+      await carregarEventoProvas(emIdNum);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emId]);
+
+  useEffect(() => {
+    (async () => {
+      setMsg("");
+      const epId = Number(fEpId);
+      if (!epId) return;
+      await carregarInscritos(epId);
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fEpId]);
 
+  // -------- ui helpers --------
+  const emSelecionadas = useMemo(() => {
+    const evId = Number(eventoId);
+    if (!evId) return [];
+    return eventoModalidades.filter((em) => em.evento_id === evId);
+  }, [eventoModalidades, eventoId]);
+
+  const emLabel = (em: EventoModalidade) => {
+    const mod = modalidades.find((m) => m.id === em.modalidade_id);
+    const tipo = mod?.tipo === "COLETIVA" ? "Coletiva" : "Individual";
+    return `${mod?.nome ?? "Modalidade"} • ${tipo} • ${em.categoria} • ${em.naipe === "M" ? "Masc" : "Fem"}`;
+  };
+
+  const epAtual = useMemo(() => {
+    const id = Number(fEpId);
+    if (!id) return null;
+    return eventoProvas.find((x) => x.id === id) ?? null;
+  }, [fEpId, eventoProvas]);
+
+  const atletasFiltrados = useMemo(() => {
+    const b = busca.toLowerCase();
+    return atletas.filter((a) => a.nome.toLowerCase().includes(b));
+  }, [atletas, busca]);
+
   return (
-    <main style={{ padding: 24, maxWidth: 1200 }}>
-      <h1 style={{ fontSize: 24, fontWeight: 700 }}>Gestor • Inscrição por Prova</h1>
-      {msg && <p style={{ marginTop: 8 }}>{msg}</p>}
+    <div style={{ padding: 16 }}>
+      <h2 style={{ fontWeight: 900, fontSize: 22 }}>Provas</h2>
 
-      <div style={{ marginTop: 12, display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
-        <div>
-          <div style={{ fontSize: 12, opacity: 0.8 }}>Evento</div>
-          <select value={fEventoId} onChange={(e) => setFEventoId(e.target.value)} style={{ padding: 10, width: "100%" }}>
-            <option value="">Selecione...</option>
-            {eventos.map((x) => (
-              <option key={x.id} value={x.id}>{x.nome}</option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <div style={{ fontSize: 12, opacity: 0.8 }}>Modalidade</div>
-          <select value={fModalidadeId} onChange={(e) => setFModalidadeId(e.target.value)} style={{ padding: 10, width: "100%" }}>
-            <option value="">Selecione...</option>
-            {modalidades.map((x) => (
-              <option key={x.id} value={x.id}>{x.nome}</option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <div style={{ fontSize: 12, opacity: 0.8 }}>Categoria/Naipe</div>
-          <select value={fEmId} onChange={(e) => setFEmId(e.target.value)} style={{ padding: 10, width: "100%" }}>
-            <option value="">Selecione...</option>
-            {emFiltradas.map((x) => (
-              <option key={x.id} value={x.id}>
-                {x.categoria} • {x.naipe}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <div style={{ fontSize: 12, opacity: 0.8 }}>Prova</div>
-          <select value={fEpId} onChange={(e) => setFEpId(e.target.value)} style={{ padding: 10, width: "100%" }}>
-            <option value="">Selecione...</option>
-            {epsFiltradas.map((x) => (
-              <option key={x.id} value={x.id}>
-                {x.provas?.nome ?? `Prova #${x.prova_id}`} (max {x.max_por_escola})
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {epAtual && (
-        <div style={{ marginTop: 10, fontSize: 13, opacity: 0.85 }}>
-          Limite por escola: <b>{inscritos.filter(i => i.status === "ATIVA").length}/{epAtual.max_por_escola}</b>
+      {msg && (
+        <div style={{ marginTop: 10, padding: 10, background: "#fff7e6", border: "1px solid #ffe58f", borderRadius: 10 }}>
+          {msg}
         </div>
       )}
+
+      <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div style={{ border: "1px solid #eee", borderRadius: 10 }}>
+          <div style={{ padding: 10, fontWeight: 700 }}>Configuração</div>
+
+          <div style={{ padding: 10, display: "grid", gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 4 }}>Evento</div>
+              <select value={eventoId} onChange={(e) => setEventoId(e.target.value)} style={{ width: "100%", padding: 10 }}>
+                <option value="">Selecione...</option>
+                {eventos.map((ev) => (
+                  <option key={ev.id} value={ev.id}>
+                    {ev.nome}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 4 }}>Categoria / Naipe</div>
+              <select value={emId} onChange={(e) => setEmId(e.target.value)} style={{ width: "100%", padding: 10 }}>
+                <option value="">Selecione...</option>
+                {emSelecionadas.map((em) => (
+                  <option key={em.id} value={em.id}>
+                    {emLabel(em)}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 4 }}>Prova</div>
+              <select value={fEpId} onChange={(e) => setFEpId(e.target.value)} style={{ width: "100%", padding: 10 }}>
+                <option value="">Selecione...</option>
+                {eventoProvas.map((ep) => (
+                  <option key={ep.id} value={ep.id}>
+                    {ep.provas?.nome ?? `Prova ${ep.prova_id}`} • max {ep.max_por_escola}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {epAtual && (
+          <div style={{ border: "1px solid #eee", borderRadius: 10 }}>
+            <div style={{ padding: 10, fontWeight: 700 }}>Resumo</div>
+            <div style={{ padding: 10, fontSize: 13, opacity: 0.85 }}>
+              Limite por escola:{" "}
+              <b>
+                {inscritos.filter((i) => i.status === "ATIVA").length}/{epAtual.max_por_escola}
+              </b>
+            </div>
+          </div>
+        )}
+      </div>
 
       <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div style={{ border: "1px solid #eee", borderRadius: 10 }}>
@@ -279,15 +361,28 @@ export default function GestorProvasPage() {
           </div>
 
           {atletasFiltrados.slice(0, 80).map((a) => (
-            <div key={a.id} style={{ padding: 10, borderTop: "1px solid #eee", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div
+              key={a.id}
+              style={{
+                padding: 10,
+                borderTop: "1px solid #eee",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
               <div>
                 <div style={{ fontWeight: 600 }}>{a.nome}</div>
                 <div style={{ fontSize: 12, opacity: 0.8 }}>{a.sexo === "M" ? "Masculino" : "Feminino"}</div>
+                <div style={{ fontSize: 12, opacity: 0.75 }}>
+                  Docs: <b>{a.doc_status ?? "PENDENTE"}</b>
+                </div>
               </div>
               <button
                 onClick={() => inscrever(a.id)}
                 style={{ padding: 10, borderRadius: 8, cursor: "pointer" }}
-                disabled={!fEpId}
+                disabled={!fEpId || (a.doc_status ?? "PENDENTE") !== "CONCLUIDO"}
+                title={(a.doc_status ?? "PENDENTE") !== "CONCLUIDO" ? "Docs pendentes/rejeitados" : "Inscrever"}
               >
                 Inscrever
               </button>
@@ -298,25 +393,43 @@ export default function GestorProvasPage() {
         </div>
 
         <div style={{ border: "1px solid #eee", borderRadius: 10 }}>
-          <div style={{ padding: 10, fontWeight: 700 }}>Inscritos na prova (sua escola)</div>
+          <div style={{ padding: 10, fontWeight: 700 }}>Inscritos</div>
 
-          {inscritos.map((i) => (
-            <div key={i.id} style={{ padding: 10, borderTop: "1px solid #eee", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <div style={{ fontWeight: 600 }}>{atletaNome(i.atleta_id)}</div>
-                <div style={{ fontSize: 12, opacity: 0.8 }}>{i.status}</div>
-              </div>
-              {i.status === "ATIVA" ? (
-                <button onClick={() => cancelar(i.id)} style={{ padding: 10, borderRadius: 8, cursor: "pointer" }}>
+          {inscritos.length === 0 && <div style={{ padding: 12 }}>Nenhuma inscrição.</div>}
+
+          {inscritos.map((i) => {
+            const atleta = atletas.find((a) => a.id === i.atleta_id);
+            return (
+              <div
+                key={i.id}
+                style={{
+                  padding: 10,
+                  borderTop: "1px solid #eee",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 700 }}>{atleta?.nome ?? `Atleta #${i.atleta_id}`}</div>
+                  <div style={{ fontSize: 12, opacity: 0.75 }}>
+                    Status: <b>{i.status}</b>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => cancelar(i.id)}
+                  style={{ padding: 10, borderRadius: 8, cursor: "pointer" }}
+                  disabled={!fEpId || i.status !== "ATIVA"}
+                  title={i.status !== "ATIVA" ? "Não está ativa" : "Cancelar"}
+                >
                   Cancelar
                 </button>
-              ) : null}
-            </div>
-          ))}
-
-          {inscritos.length === 0 && <div style={{ padding: 12 }}>Nenhum inscrito ainda.</div>}
+              </div>
+            );
+          })}
         </div>
       </div>
-    </main>
+    </div>
   );
 }

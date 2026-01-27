@@ -48,9 +48,6 @@ export default function GestorEquipesPage() {
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [eventoId, setEventoId] = useState<string>("");
 
-  // ✅ trava de inscrições por evento
-  const [eventoAberto, setEventoAberto] = useState<boolean>(true);
-
   const [opcoes, setOpcoes] = useState<EventoModalidade[]>([]);
   const [eventoModalidadeId, setEventoModalidadeId] = useState<string>("");
 
@@ -62,7 +59,10 @@ export default function GestorEquipesPage() {
   const [membros, setMembros] = useState<Membro[]>([]);
 
   async function carregarPerfil() {
-    const { data, error } = await supabase.from("perfis").select("escola_id, municipio_id").maybeSingle();
+    const { data, error } = await supabase
+      .from("perfis")
+      .select("escola_id, municipio_id")
+      .maybeSingle();
 
     if (error) return setMsg("Erro perfil: " + error.message);
     if (!data?.escola_id || !data?.municipio_id) return setMsg("Perfil sem escola/município.");
@@ -79,24 +79,6 @@ export default function GestorEquipesPage() {
 
     if (error) return setMsg("Erro eventos: " + error.message);
     setEventos((data ?? []) as unknown as Evento[]);
-  }
-
-  // ✅ busca se o evento está aberto/fechado
-  async function carregarEventoAberto(eventoIdNum: number) {
-    const { data, error } = await supabase
-      .from("eventos")
-      .select("id, inscricoes_abertas")
-      .eq("id", eventoIdNum)
-      .maybeSingle();
-
-    if (error) {
-      // se falhar, por segurança, considera fechado
-      setEventoAberto(false);
-      setMsg("Erro ao verificar inscrições do evento: " + error.message);
-      return;
-    }
-
-    setEventoAberto(!!(data as any)?.inscricoes_abertas);
   }
 
   async function carregarOpcoes(eventoIdNum: number) {
@@ -150,7 +132,10 @@ export default function GestorEquipesPage() {
   }
 
   async function carregarMembros(equipeIdNum: number) {
-    const { data, error } = await supabase.from("equipe_membros").select("id, atleta_id").eq("equipe_id", equipeIdNum);
+    const { data, error } = await supabase
+      .from("equipe_membros")
+      .select("id, atleta_id")
+      .eq("equipe_id", equipeIdNum);
 
     if (error) return setMsg("Erro membros: " + error.message);
     setMembros((data ?? []) as unknown as Membro[]);
@@ -174,17 +159,8 @@ export default function GestorEquipesPage() {
   const minEquipe = opcaoSelecionada?.min_por_equipe ?? 0;
   const maxEquipe = opcaoSelecionada?.max_por_equipe ?? 999999;
 
-  function exigirEventoAberto(): boolean {
-    if (!eventoAberto) {
-      setMsg("Inscrições encerradas para este evento.");
-      return false;
-    }
-    return true;
-  }
-
   async function criarEquipe() {
     setMsg("");
-    if (!exigirEventoAberto()) return;
     if (!perfil || !opcaoSelecionada) return setMsg("Selecione a modalidade coletiva.");
 
     const nomeEquipe = `${opcaoSelecionada.modalidades?.nome} ${opcaoSelecionada.naipe} ${opcaoSelecionada.categoria}`;
@@ -213,8 +189,6 @@ export default function GestorEquipesPage() {
 
   async function adicionarMembro(atleta: Atleta) {
     setMsg("");
-    if (!exigirEventoAberto()) return;
-
     const eqid = Number(equipeId);
     if (!eqid) return setMsg("Selecione uma equipe.");
 
@@ -235,12 +209,14 @@ export default function GestorEquipesPage() {
 
   async function removerMembro(atletaId: number) {
     setMsg("");
-    if (!exigirEventoAberto()) return;
-
     const eqid = Number(equipeId);
     if (!eqid) return;
 
-    const { error } = await supabase.from("equipe_membros").delete().eq("equipe_id", eqid).eq("atleta_id", atletaId);
+    const { error } = await supabase
+      .from("equipe_membros")
+      .delete()
+      .eq("equipe_id", eqid)
+      .eq("atleta_id", atletaId);
 
     if (error) return setMsg("Erro ao remover: " + error.message);
 
@@ -250,13 +226,15 @@ export default function GestorEquipesPage() {
 
   async function concluirEquipe() {
     setMsg("");
-    if (!exigirEventoAberto()) return;
-
     const eqid = Number(equipeId);
     if (!eqid) return setMsg("Selecione uma equipe.");
 
-    if (membros.length < minEquipe) return setMsg(`Mínimo de atletas não atingido. Min: ${minEquipe}`);
-    if (membros.length > maxEquipe) return setMsg(`Máximo excedido. Máx: ${maxEquipe}`);
+    if (membros.length < minEquipe) {
+      return setMsg(`Mínimo de atletas não atingido. Min: ${minEquipe}`);
+    }
+    if (membros.length > maxEquipe) {
+      return setMsg(`Máximo excedido. Máx: ${maxEquipe}`);
+    }
 
     const { error } = await supabase.from("equipes").update({ status: "CONCLUIDO" }).eq("id", eqid);
     if (error) return setMsg("Erro ao concluir: " + error.message);
@@ -284,13 +262,7 @@ export default function GestorEquipesPage() {
     setEquipes([]);
     setMembros([]);
 
-    // padrão: por segurança, se não tem evento selecionado, não deixa mexer
-    if (!eid || !Number.isFinite(eid)) {
-      setEventoAberto(false);
-      return;
-    }
-
-    carregarEventoAberto(eid);
+    if (!eid || !Number.isFinite(eid)) return;
     carregarOpcoes(eid);
   }, [eventoId]);
 
@@ -311,18 +283,9 @@ export default function GestorEquipesPage() {
     carregarMembros(eqid);
   }, [equipeId]);
 
-  const bloqueado = !eventoAberto;
-
   return (
     <main style={{ padding: 24, maxWidth: 1200 }}>
       <h1 style={{ fontSize: 24, fontWeight: 700 }}>Gestor • Equipes (Coletivas)</h1>
-
-      {eventoId && bloqueado && (
-        <div style={{ marginTop: 12, padding: 12, border: "1px solid #eee", borderRadius: 10 }}>
-          <b>Inscrições encerradas neste evento.</b>
-          <div style={{ fontSize: 12, opacity: 0.85 }}>Você pode visualizar, mas não pode alterar equipes ou atletas.</div>
-        </div>
-      )}
 
       <div style={{ marginTop: 16, display: "grid", gap: 10, maxWidth: 800 }}>
         <select
@@ -365,7 +328,7 @@ export default function GestorEquipesPage() {
 
         <button
           onClick={criarEquipe}
-          disabled={!opcaoSelecionada || bloqueado}
+          disabled={!opcaoSelecionada}
           style={{ padding: 10, borderRadius: 8, cursor: "pointer", maxWidth: 240 }}
         >
           Criar equipe
@@ -388,7 +351,6 @@ export default function GestorEquipesPage() {
         {equipeId && (
           <button
             onClick={concluirEquipe}
-            disabled={bloqueado}
             style={{ padding: 10, borderRadius: 8, cursor: "pointer", maxWidth: 240 }}
           >
             Concluir equipe
@@ -427,7 +389,6 @@ export default function GestorEquipesPage() {
                     </div>
                     <button
                       onClick={() => removerMembro(m.atleta_id)}
-                      disabled={bloqueado}
                       style={{ padding: 8, borderRadius: 8, cursor: "pointer" }}
                     >
                       Remover
@@ -471,7 +432,7 @@ export default function GestorEquipesPage() {
 
                   <button
                     onClick={() => adicionarMembro(a)}
-                    disabled={bloqueado || !equipeId || membrosSet.has(a.id) || membros.length >= maxEquipe}
+                    disabled={!equipeId || membrosSet.has(a.id) || membros.length >= maxEquipe}
                     style={{ padding: 8, borderRadius: 8, cursor: "pointer" }}
                   >
                     Adicionar
@@ -479,7 +440,9 @@ export default function GestorEquipesPage() {
                 </div>
               ))}
 
-            {opcaoSelecionada && atletasElegiveis.length === 0 && <div style={{ padding: 12 }}>Nenhum atleta elegível.</div>}
+            {opcaoSelecionada && atletasElegiveis.length === 0 && (
+              <div style={{ padding: 12 }}>Nenhum atleta elegível.</div>
+            )}
           </div>
         </div>
       </div>
