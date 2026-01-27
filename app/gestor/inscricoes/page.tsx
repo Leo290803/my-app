@@ -10,7 +10,12 @@ type Perfil = {
   ativo?: boolean;
 };
 
-type Evento = { id: number; nome: string; municipio_id: number | null; inscricoes_abertas?: boolean };
+type Evento = {
+  id: number;
+  nome: string;
+  municipio_id: number | null;
+  inscricoes_abertas?: boolean;
+};
 
 type Modalidade = { id: number; nome: string; tipo: "INDIVIDUAL" | "COLETIVA" };
 
@@ -18,14 +23,25 @@ type EventoModalidade = {
   id: number;
   evento_id: number;
   modalidade_id: number;
-  categoria: string; // "12-14" | "15-17"
-  naipe: string; // "M" | "F"
+  categoria: string;
+  naipe: string;
 };
 
-type Atleta = { id: number; nome: string; sexo: "M" | "F"; ativo: boolean };
+type Atleta = {
+  id: number;
+  nome: string;
+  sexo: "M" | "F";
+  ativo: boolean;
+
+  // docs
+  status_doc?: "PENDENTE" | "CONCLUIDO" | string;
+  foto_url?: string | null;
+  id_frente_url?: string | null;
+  id_verso_url?: string | null;
+};
 
 type EventoProva = {
-  id: number; // evento_provas.id
+  id: number;
   evento_modalidade_id: number;
   prova_id: number;
   max_por_escola: number;
@@ -34,48 +50,143 @@ type EventoProva = {
   provas?: { nome: string } | null;
 };
 
-type InscricaoInd = {
-  id: number;
-  atleta_id: number;
-  status: string;
-};
+type InscricaoInd = { id: number; atleta_id: number; status: string };
+type InscricaoProva = { id: number; atleta_id: number; status: string };
 
-type InscricaoProva = {
-  id: number;
-  atleta_id: number;
-  status: string;
-};
+// ---------- helpers ----------
+function extFromName(name: string) {
+  const p = name.split(".");
+  if (p.length < 2) return "bin";
+  return p[p.length - 1].toLowerCase();
+}
+
+async function uploadToBucket(file: File, path: string) {
+  const { data, error } = await supabase.storage.from("jers-docs").upload(path, file, {
+    upsert: true,
+    contentType: file.type || undefined,
+  });
+  if (error) throw error;
+
+  // se seu bucket estiver PUBLIC, isso funciona:
+  const { data: pub } = supabase.storage.from("jers-docs").getPublicUrl(data.path);
+  return pub.publicUrl as string;
+}
 
 export default function GestorInscricoesPage() {
   const [msg, setMsg] = useState("");
-
   const [perfil, setPerfil] = useState<Perfil | null>(null);
 
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [modalidades, setModalidades] = useState<Modalidade[]>([]);
   const [ems, setEms] = useState<EventoModalidade[]>([]);
   const [eventoProvas, setEventoProvas] = useState<EventoProva[]>([]);
-
   const [atletas, setAtletas] = useState<Atleta[]>([]);
 
   // selecionados
   const [eventoId, setEventoId] = useState<string>("");
   const [modalidadeId, setModalidadeId] = useState<string>("");
-  const [emId, setEmId] = useState<string>(""); // evento_modalidades.id
-  const [eventoProvaId, setEventoProvaId] = useState<string>(""); // evento_provas.id
+  const [emId, setEmId] = useState<string>("");
+  const [eventoProvaId, setEventoProvaId] = useState<string>("");
 
-  // ✅ trava por evento
+  // trava por evento
   const [eventoAberto, setEventoAberto] = useState<boolean>(true);
 
-  // controle de vagas da prova
+  // controle vagas prova
   const [limiteMax, setLimiteMax] = useState<number>(0);
   const [usadas, setUsadas] = useState<number>(0);
 
   const [busca, setBusca] = useState("");
 
-  // inscrições mostradas (depende se é prova ou não)
+  // inscrições mostradas
   const [inscInd, setInscInd] = useState<InscricaoInd[]>([]);
   const [inscProva, setInscProva] = useState<InscricaoProva[]>([]);
+
+  // -------- NOVO: uploads --------
+  const [uploadingId, setUploadingId] = useState<number | null>(null);
+  const [filesByAtleta, setFilesByAtleta] = useState<
+    Record<
+      number,
+      { foto?: File | null; frente?: File | null; verso?: File | null }
+    >
+  >({});
+
+  function setFile(atletaId: number, key: "foto" | "frente" | "verso", file: File | null) {
+    setFilesByAtleta((prev) => ({
+      ...prev,
+      [atletaId]: { ...(prev[atletaId] ?? {}), [key]: file },
+    }));
+  }
+
+  function atletaDocsOK(a: Atleta) {
+    // Regra do bloqueio de competição:
+    // Só entra em competição se status_doc === CONCLUIDO.
+    return (a.status_doc ?? "PENDENTE") === "CONCLUIDO";
+  }
+
+  async function enviarDocsDoAtleta(atleta: Atleta) {
+    if (!perfil?.escola_id) return setMsg("Perfil sem escola.");
+    const pack = filesByAtleta[atleta.id] ?? {};
+    if (!pack.foto && !pack.frente && !pack.verso) {
+      setMsg("Selecione pelo menos 1 arquivo para enviar.");
+      return;
+    }
+
+    try {
+      setMsg("");
+      setUploadingId(atleta.id);
+
+      const base = `atletas/${perfil.escola_id}/${atleta.id}`;
+      const now = Date.now();
+
+      const patch: Partial<Atleta> = {};
+
+      if (pack.foto) {
+        const url = await uploadToBucket(
+          pack.foto,
+          `${base}/foto-${now}.${extFromName(pack.foto.name)}`
+        );
+        patch.foto_url = url;
+      }
+
+      if (pack.frente) {
+        const url = await uploadToBucket(
+          pack.frente,
+          `${base}/id-frente-${now}.${extFromName(pack.frente.name)}`
+        );
+        patch.id_frente_url = url;
+      }
+
+      if (pack.verso) {
+        const url = await uploadToBucket(
+          pack.verso,
+          `${base}/id-verso-${now}.${extFromName(pack.verso.name)}`
+        );
+        patch.id_verso_url = url;
+      }
+
+      // IMPORTANTE:
+      // aqui a gente NÃO coloca CONCLUIDO automaticamente.
+      // fica PENDENTE até alguém do admin validar.
+      patch.status_doc = "PENDENTE";
+
+      const { error } = await supabase.from("atletas").update(patch).eq("id", atleta.id);
+      if (error) throw error;
+
+      // atualiza lista local
+      setAtletas((prev) =>
+        prev.map((x) => (x.id === atleta.id ? { ...x, ...patch } : x))
+      );
+
+      // limpa arquivos do atleta
+      setFilesByAtleta((prev) => ({ ...prev, [atleta.id]: {} }));
+
+      setMsg("Arquivos enviados ✅ (documentação fica PENDENTE até validar)");
+    } catch (e: any) {
+      setMsg("Erro no upload: " + (e?.message ?? String(e)));
+    } finally {
+      setUploadingId(null);
+    }
+  }
 
   // -------- helpers --------
   const atletasById = useMemo(() => {
@@ -132,7 +243,6 @@ export default function GestorInscricoesPage() {
     return true;
   }
 
-  // ✅ carrega se o evento está aberto/fechado
   async function carregarEventoAberto(eventoIdNum: number) {
     const { data, error } = await supabase
       .from("eventos")
@@ -173,7 +283,6 @@ export default function GestorInscricoesPage() {
   }
 
   async function carregarBase() {
-    // eventos (inclui inscricoes_abertas pra deixar pronto)
     const ev = await supabase
       .from("eventos")
       .select("id, nome, municipio_id, inscricoes_abertas")
@@ -182,17 +291,16 @@ export default function GestorInscricoesPage() {
     if (ev.error) setMsg("Erro eventos: " + ev.error.message);
     setEventos((ev.data ?? []) as any);
 
-    // modalidades
     const mod = await supabase.from("modalidades").select("id, nome, tipo").order("nome");
     if (mod.error) setMsg("Erro modalidades: " + mod.error.message);
     setModalidades((mod.data ?? []) as any);
 
-    // evento_modalidades
-    const em = await supabase.from("evento_modalidades").select("id, evento_id, modalidade_id, categoria, naipe");
+    const em = await supabase
+      .from("evento_modalidades")
+      .select("id, evento_id, modalidade_id, categoria, naipe");
     if (em.error) setMsg("Erro evento_modalidades: " + em.error.message);
     setEms((em.data ?? []) as any);
 
-    // evento_provas
     const ep = await supabase
       .from("evento_provas")
       .select("id, evento_modalidade_id, prova_id, max_por_escola, min_por_escola, ativo, provas(nome)")
@@ -202,7 +310,11 @@ export default function GestorInscricoesPage() {
   }
 
   async function carregarAtletasDaEscola(escolaId: number) {
-    const { data, error } = await supabase.from("atletas").select("id, nome, sexo, ativo").eq("escola_id", escolaId).order("nome");
+    const { data, error } = await supabase
+      .from("atletas")
+      .select("id, nome, sexo, ativo, status_doc, foto_url, id_frente_url, id_verso_url")
+      .eq("escola_id", escolaId)
+      .order("nome");
 
     if (error) return setMsg("Erro atletas: " + error.message);
     setAtletas((data ?? []) as any);
@@ -249,10 +361,7 @@ export default function GestorInscricoesPage() {
       .eq("escola_id", perfil.escola_id)
       .in("status", ["ATIVA", "ATIVO"]);
 
-    if (error) {
-      console.error(error);
-      return;
-    }
+    if (error) return;
     setUsadas(count ?? 0);
   }
 
@@ -262,16 +371,26 @@ export default function GestorInscricoesPage() {
     if (!exigirEventoAberto()) return;
 
     if (!perfil?.escola_id) return setMsg("Perfil sem escola.");
-
     const emIdNum = Number(emId);
     if (!emIdNum) return setMsg("Selecione categoria/naipe (evento_modalidade).");
-
     if (provasAtivas.length > 0 && !eventoProvaId) return setMsg("Selecione uma prova.");
+
+    // ✅ BLOQUEIO POR DOCUMENTAÇÃO
+    const atleta = atletas.find((a) => a.id === atletaId);
+    if (!atleta) return setMsg("Atleta não encontrado na lista.");
+
+    if (!atletaDocsOK(atleta)) {
+      return setMsg(
+        `Documentação do atleta está "${atleta.status_doc ?? "PENDENTE"}". ` +
+          `Envie os arquivos e aguarde validação (CONCLUIDO) para inscrever em competição.`
+      );
+    }
 
     if (eventoProvaId) {
       const epIdNum = Number(eventoProvaId);
       const ep = provasAtivas.find((p) => p.id === epIdNum);
       if (!ep) return setMsg("Configuração da prova não encontrada.");
+
       const max = ep.max_por_escola ?? 0;
 
       const { count, error: cErr } = await supabase
@@ -282,7 +401,6 @@ export default function GestorInscricoesPage() {
         .in("status", ["ATIVA", "ATIVO"]);
 
       if (cErr) return setMsg("Erro ao validar limite: " + cErr.message);
-
       if ((count ?? 0) >= max) return setMsg(`Limite atingido nesta prova: ${count}/${max}`);
 
       const { error } = await supabase.from("inscricoes_provas").insert({
@@ -317,7 +435,10 @@ export default function GestorInscricoesPage() {
     if (!exigirEventoAberto()) return;
 
     if (eventoProvaId) {
-      const { error } = await supabase.from("inscricoes_provas").update({ status: "CANCELADA" }).eq("id", id);
+      const { error } = await supabase
+        .from("inscricoes_provas")
+        .update({ status: "CANCELADA" })
+        .eq("id", id);
 
       if (error) return setMsg("Erro ao cancelar: " + error.message);
 
@@ -328,7 +449,10 @@ export default function GestorInscricoesPage() {
       return;
     }
 
-    const { error } = await supabase.from("inscricoes_individuais").update({ status: "CANCELADA" }).eq("id", id);
+    const { error } = await supabase
+      .from("inscricoes_individuais")
+      .update({ status: "CANCELADA" })
+      .eq("id", id);
 
     if (error) return setMsg("Erro ao cancelar: " + error.message);
 
@@ -347,11 +471,9 @@ export default function GestorInscricoesPage() {
     carregarAtletasDaEscola(perfil.escola_id);
   }, [perfil?.escola_id]);
 
-  // quando muda evento, atualiza trava
   useEffect(() => {
     const eid = Number(eventoId);
 
-    // reset geral
     setEmId("");
     setEventoProvaId("");
     setLimiteMax(0);
@@ -367,7 +489,6 @@ export default function GestorInscricoesPage() {
     carregarEventoAberto(eid);
   }, [eventoId]);
 
-  // reset quando muda modalidade
   useEffect(() => {
     setEmId("");
     setEventoProvaId("");
@@ -377,7 +498,6 @@ export default function GestorInscricoesPage() {
     setInscProva([]);
   }, [modalidadeId]);
 
-  // quando seleciona EM
   useEffect(() => {
     const emIdNum = Number(emId);
     setEventoProvaId("");
@@ -398,7 +518,6 @@ export default function GestorInscricoesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [emId]);
 
-  // quando seleciona uma prova
   useEffect(() => {
     const epIdNum = Number(eventoProvaId);
     if (!epIdNum) {
@@ -432,7 +551,9 @@ export default function GestorInscricoesPage() {
       {eventoId && bloqueado && (
         <div style={{ marginTop: 12, padding: 12, border: "1px solid #eee", borderRadius: 10 }}>
           <b>Inscrições encerradas neste evento.</b>
-          <div style={{ fontSize: 12, opacity: 0.85 }}>Você pode visualizar, mas não pode inscrever/cancelar.</div>
+          <div style={{ fontSize: 12, opacity: 0.85 }}>
+            Você pode visualizar, mas não pode inscrever/cancelar.
+          </div>
         </div>
       )}
 
@@ -516,46 +637,112 @@ export default function GestorInscricoesPage() {
           <div style={{ padding: 10, fontWeight: 800 }}>Atletas da escola</div>
 
           <div style={{ padding: 10 }}>
-            <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar atleta..." style={{ padding: 10, width: "100%" }} />
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar atleta..."
+              style={{ padding: 10, width: "100%" }}
+            />
           </div>
 
-          {atletasDisponiveis.slice(0, 120).map((a) => (
-            <div
-              key={a.id}
-              style={{
-                padding: 10,
-                borderTop: "1px solid #eee",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: 10,
-              }}
-            >
-              <div>
-                <div style={{ fontWeight: 700 }}>{a.nome}</div>
-                <div style={{ fontSize: 12, opacity: 0.75 }}>{a.sexo === "M" ? "Masculino" : "Feminino"}</div>
+          {atletasDisponiveis.slice(0, 120).map((a) => {
+            const statusDoc = a.status_doc ?? "PENDENTE";
+            const okDocs = atletaDocsOK(a);
+            const uploading = uploadingId === a.id;
+
+            return (
+              <div key={a.id} style={{ padding: 10, borderTop: "1px solid #eee" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                  <div>
+                    <div style={{ fontWeight: 700 }}>{a.nome}</div>
+                    <div style={{ fontSize: 12, opacity: 0.75 }}>
+                      {a.sexo === "M" ? "Masculino" : "Feminino"} • Docs: <b>{statusDoc}</b>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => inscrever(a.id)}
+                    style={{ padding: 10, borderRadius: 8, cursor: "pointer" }}
+                    disabled={
+                      bloqueado ||
+                      !emId ||
+                      (provasAtivas.length > 0 && !eventoProvaId) ||
+                      !okDocs
+                    }
+                    title={
+                      bloqueado
+                        ? "Inscrições encerradas"
+                        : !emId
+                        ? "Selecione categoria/naipe"
+                        : provasAtivas.length > 0 && !eventoProvaId
+                        ? "Selecione a prova"
+                        : !okDocs
+                        ? "Documentação precisa estar CONCLUIDO para competir"
+                        : "Inscrever"
+                    }
+                  >
+                    Inscrever
+                  </button>
+                </div>
+
+                {/* Upload docs (não trava o sistema; só bloqueia competição até CONCLUIDO) */}
+                <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+                  <div style={{ fontSize: 12, opacity: 0.8 }}>
+                    Enviar documentos (bucket: <b>jers-docs</b>) — fica <b>PENDENTE</b> até validação
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                    <div>
+                      <div style={{ fontSize: 12, opacity: 0.8 }}>Foto</div>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => setFile(a.id, "foto", e.target.files?.[0] ?? null)}
+                      />
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: 12, opacity: 0.8 }}>ID Frente</div>
+                      <input
+                        type="file"
+                        accept="image/*,.pdf"
+                        onChange={(e) => setFile(a.id, "frente", e.target.files?.[0] ?? null)}
+                      />
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: 12, opacity: 0.8 }}>ID Verso</div>
+                      <input
+                        type="file"
+                        accept="image/*,.pdf"
+                        onChange={(e) => setFile(a.id, "verso", e.target.files?.[0] ?? null)}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <button
+                      onClick={() => enviarDocsDoAtleta(a)}
+                      disabled={uploading}
+                      style={{ padding: 10, borderRadius: 8, cursor: "pointer" }}
+                    >
+                      {uploading ? "Enviando..." : "Enviar documentos"}
+                    </button>
+
+                    <div style={{ fontSize: 12, opacity: 0.75 }}>
+                      {a.foto_url ? "✅ Foto" : "❌ Foto"} •{" "}
+                      {a.id_frente_url ? "✅ Frente" : "❌ Frente"} •{" "}
+                      {a.id_verso_url ? "✅ Verso" : "❌ Verso"}
+                    </div>
+                  </div>
+                </div>
               </div>
+            );
+          })}
 
-              <button
-                onClick={() => inscrever(a.id)}
-                style={{ padding: 10, borderRadius: 8, cursor: "pointer" }}
-                disabled={bloqueado || !emId || (provasAtivas.length > 0 && !eventoProvaId)}
-                title={
-                  bloqueado
-                    ? "Inscrições encerradas"
-                    : !emId
-                    ? "Selecione categoria/naipe"
-                    : provasAtivas.length > 0 && !eventoProvaId
-                    ? "Selecione a prova"
-                    : "Inscrever"
-                }
-              >
-                Inscrever
-              </button>
-            </div>
-          ))}
-
-          {atletasDisponiveis.length === 0 && <div style={{ padding: 12, opacity: 0.85 }}>Nenhum atleta disponível.</div>}
+          {atletasDisponiveis.length === 0 && (
+            <div style={{ padding: 12, opacity: 0.85 }}>Nenhum atleta disponível.</div>
+          )}
         </div>
 
         {/* Inscritos */}
@@ -597,7 +784,9 @@ export default function GestorInscricoesPage() {
             );
           })}
 
-          {inscritosList.length === 0 && <div style={{ padding: 12, opacity: 0.85 }}>Nenhum inscrito ainda.</div>}
+          {inscritosList.length === 0 && (
+            <div style={{ padding: 12, opacity: 0.85 }}>Nenhum inscrito ainda.</div>
+          )}
         </div>
       </div>
     </main>
