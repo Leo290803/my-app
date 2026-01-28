@@ -31,13 +31,19 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <SidebarLink href="/admin/eventos" label="Eventos" />
             <SidebarLink href="/admin/escolas" label="Escolas" />
             <SidebarLink href="/admin/gestores" label="Gestores" />
-            <SidebarLink href="/admin/crachas" label="Crachás" />
+            <SidebarLink href="/admin/municipios" label="Municípios" />
+            <SidebarLink href="/admin/admins" label="Administradores" />
+            
+
 
             <Divider />
 
             <SectionTitle>Conferência</SectionTitle>
             <SidebarLink href="/admin/conferencia" label="Conferência" />
             <SidebarLink href="/admin/substituicoes" label="Substituições" />
+            <SidebarLink href="/admin/pendencias" label="Pendências" />
+            <SidebarLink href="/admin/relatorios" label="Relatórios" />
+            <SidebarLink href="/admin/crachas" label="Crachás" />
 
             <Divider />
 

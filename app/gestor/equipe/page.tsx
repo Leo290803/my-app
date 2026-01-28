@@ -6,106 +6,136 @@ import { supabase } from "@/lib/supabaseClient";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 
-type Perfil = {
-  escola_id: number | null;
-  municipio_id: number | null;
-  tipo: "ADMIN" | "GESTOR";
-};
+type Perfil = { escola_id: number; municipio_id: number };
 
-type EquipeRow = {
+type DocStatus = "PENDENTE" | "CONCLUIDO" | "REJEITADO";
+
+type EquipeTecnica = {
   id: number;
   nome: string;
   cpf: string | null;
-  funcao: string;
-  status_doc: "PENDENTE" | "CONCLUIDO";
+  funcao: string | null;
   cref: string | null;
+  email: string | null;
+  telefone: string | null;
+  status_doc: DocStatus | null;
   ativo: boolean;
 };
 
-const onlyDigits = (v: string) => v.replace(/\D/g, "");
+const onlyDigits = (v: string) => (v ?? "").replace(/\D/g, "");
 
-export default function EquipeTecnicaListaPage() {
-  const [perfil, setPerfil] = useState<Perfil | null>(null);
-  const [lista, setLista] = useState<EquipeRow[]>([]);
+export default function EquipePage() {
   const [msg, setMsg] = useState("");
+  const [perfil, setPerfil] = useState<Perfil | null>(null);
+  const [lista, setLista] = useState<EquipeTecnica[]>([]);
+  const [busca, setBusca] = useState("");
   const [carregando, setCarregando] = useState(false);
+  const [excluindoId, setExcluindoId] = useState<number | null>(null);
+  const [mostrarInativos, setMostrarInativos] = useState(false);
 
-  const [q, setQ] = useState("");
+  useEffect(() => {
+    (async () => {
+      setMsg("");
+      const { data, error } = await supabase
+        .from("perfis")
+        .select("escola_id, municipio_id")
+        .maybeSingle();
 
-  async function carregarPerfil() {
-    setMsg("");
-    const { data, error } = await supabase
-      .from("perfis")
-      .select("escola_id, municipio_id, tipo")
-      .maybeSingle();
+      if (error) return setMsg("Erro ao carregar perfil: " + error.message);
+      if (!data?.escola_id) return setMsg("Seu perfil está sem escola.");
+      setPerfil(data as Perfil);
+    })();
+  }, []);
 
-    if (error) return setMsg("Erro ao carregar perfil: " + error.message);
+  useEffect(() => {
+    if (!perfil?.escola_id) return;
+    carregar(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [perfil?.escola_id]);
 
-    if (!data?.escola_id || !data?.municipio_id) {
-      return setMsg("Perfil do gestor está sem escola/município. Fale com o Admin.");
-    }
+  async function carregar(silencioso = false) {
+    if (!perfil?.escola_id) return;
 
-    setPerfil(data as Perfil);
-  }
-
-  async function carregarLista(escolaId: number) {
-    setMsg("");
     setCarregando(true);
+    if (!silencioso) setMsg("");
 
     const { data, error } = await supabase
       .from("equipe_tecnica")
-      .select("id,nome,cpf,funcao,status_doc,cref,ativo")
-      .eq("escola_id", escolaId)
-      .eq("ativo", true) // ✅ só ativos (para “sumir” da lista)
+      .select("id,nome,cpf,funcao,cref,email,telefone,status_doc,ativo")
+      .eq("escola_id", perfil.escola_id)
       .order("nome");
 
     setCarregando(false);
 
-    if (error) return setMsg("Erro ao carregar lista: " + error.message);
+    if (error) return setMsg("Erro ao carregar equipe: " + error.message);
 
-    setLista((data ?? []) as EquipeRow[]);
+    setLista((data ?? []) as EquipeTecnica[]);
   }
 
-  useEffect(() => {
-    carregarPerfil();
-  }, []);
+  async function excluir(id: number) {
+    if (!perfil?.escola_id) return;
 
-  useEffect(() => {
-    if (perfil?.escola_id) carregarLista(perfil.escola_id);
-  }, [perfil?.escola_id]);
+    const item = lista.find((x) => x.id === id);
+    const ok = window.confirm(
+      `Tem certeza que deseja excluir (desativar) "${item?.nome ?? id}"?\n\nIsso vai marcar como INATIVO (não apaga do sistema).`
+    );
+    if (!ok) return;
 
-  const filtrada = useMemo(() => {
-    const termo = q.trim().toLowerCase();
-    if (!termo) return lista;
+    setExcluindoId(id);
+    setMsg("");
 
-    const termoDigits = onlyDigits(termo);
+    const { data, error } = await supabase
+      .from("equipe_tecnica")
+      .update({ ativo: false })
+      .eq("id", id)
+      .eq("escola_id", perfil.escola_id)
+      .select("id, ativo")
+      .maybeSingle();
 
-    return lista.filter((p) => {
-      const nome = (p.nome ?? "").toLowerCase();
-      const cpf = onlyDigits(p.cpf ?? "");
-      const cref = (p.cref ?? "").toLowerCase();
+    setExcluindoId(null);
+
+    if (error) return setMsg("Erro ao excluir: " + error.message);
+    if (!data?.id) return setMsg("Não foi possível desativar. Verifique permissões (RLS).");
+
+    setLista((prev) => prev.map((x) => (x.id === id ? { ...x, ativo: false } : x)));
+    if (!mostrarInativos) setLista((prev) => prev.filter((x) => x.id !== id));
+
+    setMsg("Cadastro desativado ✅");
+  }
+
+  const filtrados = useMemo(() => {
+    const b = busca.toLowerCase().trim();
+    const bDigits = onlyDigits(b);
+
+    let l = lista;
+    if (!mostrarInativos) l = l.filter((x) => x.ativo);
+
+    if (!b) return l;
+
+    return l.filter((x) => {
+      const nome = (x.nome ?? "").toLowerCase();
+      const cpf = onlyDigits(x.cpf ?? "");
+      const cref = (x.cref ?? "").toLowerCase();
       return (
-        nome.includes(termo) ||
-        (termoDigits && cpf.includes(termoDigits)) ||
-        cref.includes(termo)
+        nome.includes(b) ||
+        (bDigits && cpf.includes(bDigits)) ||
+        cref.includes(b)
       );
     });
-  }, [q, lista]);
+  }, [lista, busca, mostrarInativos]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
-        title="Equipe técnica / oficiais"
-        subtitle="Lista de cadastros (ativos)"
+        title="Cadastro de Comissão Técnica"
+        subtitle="Gerencie os cadastros da equipe técnica"
         right={
-          <div className="flex gap-2">
-            <Link
-              href="/gestor/equipe/novo"
-              className="inline-flex h-10 items-center justify-center rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800"
-            >
-              Novo cadastro
-            </Link>
-          </div>
+          <Link
+            href="/gestor/equipe/novo"
+            className="inline-flex h-10 items-center justify-center rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800"
+          >
+            + Novo cadastro
+          </Link>
         }
       />
 
@@ -114,59 +144,74 @@ export default function EquipeTecnicaListaPage() {
       <Card>
         <CardHeader>
           <div className="font-semibold">Pesquisar</div>
-          <div className="text-sm text-zinc-600">
-            Pesquise por <b>nome</b>, <b>CPF</b> ou <b>CREF</b>
-          </div>
+          <div className="text-sm text-zinc-600">Nome, CPF ou CREF</div>
         </CardHeader>
-        <CardContent>
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Digite para pesquisar..."
-            className="h-11 w-full rounded-xl border bg-white px-3 outline-none focus:ring-2"
-          />
-        </CardContent>
-      </Card>
+        <CardContent className="space-y-3 p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar..."
+              className="h-11 w-full rounded-xl border bg-white px-3 outline-none focus:ring-2 sm:max-w-md"
+            />
 
-      <Card>
-        <CardHeader>
-          <div className="font-semibold">
-            Lista ({filtrada.length}) {carregando ? "• Carregando..." : ""}
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={mostrarInativos}
+                  onChange={(e) => setMostrarInativos(e.target.checked)}
+                />
+                Mostrar inativos
+              </label>
+
+              <button
+                onClick={() => carregar(false)}
+                className="inline-flex h-11 items-center justify-center rounded-xl border bg-white px-4 text-sm font-semibold hover:bg-zinc-50"
+              >
+                Recarregar
+              </button>
+            </div>
           </div>
-        </CardHeader>
 
-        <CardContent className="space-y-2">
-          {filtrada.map((p) => (
-            <div
-              key={p.id}
-              className="flex flex-col gap-2 rounded-xl border bg-white p-3 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <div className="min-w-0">
-                <div className="font-semibold">{p.nome}</div>
-                <div className="text-sm text-zinc-600">
-                  Função: {p.funcao.replaceAll("_", " ")} • Status: {p.status_doc}
+          {carregando ? (
+            <div className="py-6 text-sm opacity-70">Carregando...</div>
+          ) : filtrados.length === 0 ? (
+            <div className="py-6 text-sm opacity-70">Nenhum cadastro encontrado.</div>
+          ) : (
+            <div className="divide-y rounded-xl border">
+              {filtrados.map((p) => (
+                <div key={p.id} className="flex items-center justify-between gap-3 p-3">
+                  <div className="min-w-0">
+                    <div className="truncate font-semibold">{p.nome}</div>
+                    <div className="text-xs opacity-70">
+                      Função: {p.funcao ?? "—"} • CREF: {p.cref ?? "—"} • Docs:{" "}
+                      <b>{(p.status_doc ?? "PENDENTE") as DocStatus}</b> •{" "}
+                      {p.ativo ? "Ativo" : "Inativo"}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Link
+                      href={`/gestor/equipe/${p.id}`}
+                      className="inline-flex h-9 items-center justify-center rounded-xl border bg-white px-3 text-sm font-semibold hover:bg-zinc-50"
+                    >
+                      Editar
+                    </Link>
+
+                    <button
+                      onClick={() => excluir(p.id)}
+                      disabled={excluindoId === p.id}
+                      className="inline-flex h-9 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:opacity-60"
+                      title="Desativar"
+                    >
+                      {excluindoId === p.id ? "..." : "Excluir"}
+                    </button>
+                  </div>
                 </div>
-                <div className="text-sm text-zinc-600">
-                  CPF: {p.cpf ?? "—"} • CREF: {p.cref ?? "—"}
-                </div>
-              </div>
-
-              <div className="flex gap-2">
-                <Link
-                  href={`/gestor/equipe/${p.id}`}
-                  className="inline-flex h-10 items-center justify-center rounded-xl border bg-white px-4 text-sm font-semibold hover:bg-zinc-50"
-                >
-                  Editar
-                </Link>
-              </div>
+              ))}
             </div>
-          ))}
-
-          {!carregando && filtrada.length === 0 ? (
-            <div className="rounded-xl border bg-white p-3 text-sm text-zinc-600">
-              Nenhum cadastro encontrado.
-            </div>
-          ) : null}
+          )}
         </CardContent>
       </Card>
     </div>

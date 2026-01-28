@@ -44,6 +44,7 @@ export default function AdminHome() {
         <QuickCard href="/admin/escolas" title="Escolas" desc="Cadastrar escolas" />
         <QuickCard href="/admin/gestores" title="Gestores" desc="Criar gestores" />
         <QuickCard href="/admin/crachas" title="Crachás" desc="Gerar crachás e lote" />
+        <QuickCard href="/admin/municipios" title="Municípios" desc="Gerenciar municípios" />
       </div>
 
       {/* Blocos */}

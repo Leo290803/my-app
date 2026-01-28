@@ -6,14 +6,12 @@ function onlyDigits(v: string) {
 }
 
 function getAnoFromISODate(iso: string) {
-  // iso esperado: YYYY-MM-DD
   const ano = (iso ?? "").slice(0, 4);
   return /^\d{4}$/.test(ano) ? ano : null;
 }
 
 export async function POST(req: Request) {
   try {
-    // 1) Token do usuário logado (Admin) vindo do frontend
     const authHeader = req.headers.get("authorization") || "";
     const token = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : null;
 
@@ -22,30 +20,17 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-
-    const {
-      cpf,
-      nome,
-      escola_id,
-      data_nascimento,
-      rg,
-      telefone,
-      email_contato,
-    } = body as {
+    const { cpf, nome, data_nascimento } = body as {
       cpf: string;
       nome: string;
-      escola_id: number;
       data_nascimento: string; // YYYY-MM-DD
-      rg?: string | null;
-      telefone?: string | null;
-      email_contato?: string | null;
     };
 
     const cpfLimpo = onlyDigits(cpf);
 
-    if (!cpfLimpo || cpfLimpo.length !== 11 || !nome || !escola_id || !data_nascimento) {
+    if (!cpfLimpo || cpfLimpo.length !== 11 || !nome?.trim() || !data_nascimento) {
       return NextResponse.json(
-        { error: "cpf, nome, escola_id e data_nascimento são obrigatórios." },
+        { error: "cpf, nome e data_nascimento são obrigatórios." },
         { status: 400 }
       );
     }
@@ -55,7 +40,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "data_nascimento inválida (use YYYY-MM-DD)." }, { status: 400 });
     }
 
-    // 2) Cliente ANON (para verificar se quem chamou é ADMIN via RPC is_admin)
+    // valida admin chamador
     const supaAnon = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -70,7 +55,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Acesso negado. Somente ADMIN." }, { status: 403 });
     }
 
-    // 3) Cliente SERVICE ROLE (server only) para criar usuário no Auth
+    // service role
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!serviceKey) {
       return NextResponse.json({ error: "SERVICE_ROLE não configurada no servidor." }, { status: 500 });
@@ -78,32 +63,28 @@ export async function POST(req: Request) {
 
     const supaAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceKey);
 
-    // 4) Regra de login/senha
-    // login = cpf
-    // senha = anoNascimento + últimos 4 do CPF (ex: 2001 + 1234 => 20011234)
+    // evita duplicar CPF como ADMIN
+    const { data: jaExiste, error: jaErr } = await supaAdmin
+      .from("perfis")
+      .select("user_id")
+      .eq("tipo", "ADMIN")
+      .eq("cpf", cpfLimpo)
+      .limit(1);
+
+    if (jaErr) return NextResponse.json({ error: "Erro verificando CPF: " + jaErr.message }, { status: 400 });
+    if (jaExiste && jaExiste.length > 0) {
+      return NextResponse.json({ error: "Já existe um ADMIN com este CPF." }, { status: 400 });
+    }
+
+    // regra login/senha igual a do gestor
     const last4 = cpfLimpo.slice(-4);
     const senhaInicial = `${ano}${last4}`;
     const loginCpf = cpfLimpo;
 
-    // email interno (apenas pra Auth, já que o login será CPF)
+    // email interno pro Auth
     const email = `${cpfLimpo}@jers.local`;
 
-    // 4.1) Evita duplicar: se já existir perfil com esse CPF como gestor, bloqueia
-    const { data: jaExiste, error: jaErr } = await supaAdmin
-      .from("perfis")
-      .select("user_id")
-      .eq("tipo", "GESTOR")
-      .eq("cpf", cpfLimpo)
-      .limit(1);
-
-    if (jaErr) {
-      return NextResponse.json({ error: "Erro verificando CPF: " + jaErr.message }, { status: 400 });
-    }
-    if (jaExiste && jaExiste.length > 0) {
-      return NextResponse.json({ error: "Já existe um gestor cadastrado com este CPF." }, { status: 400 });
-    }
-
-    // 5) Criar usuário no Auth
+    // cria user no auth
     const { data: created, error: createErr } = await supaAdmin.auth.admin.createUser({
       email,
       password: senhaInicial,
@@ -119,29 +100,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Usuário criado sem ID." }, { status: 500 });
     }
 
-    // 6) Descobrir município pela escola
-    const { data: escola, error: escolaErr } = await supaAdmin
-      .from("escolas")
-      .select("municipio_id")
-      .eq("id", escola_id)
-      .maybeSingle();
-
-    if (escolaErr || !escola?.municipio_id) {
-      return NextResponse.json({ error: "Erro ao obter município da escola." }, { status: 400 });
-    }
-
-    // 7) Criar perfil GESTOR
+    // cria perfil ADMIN (sem escola/municipio)
     const { error: perfilErr } = await supaAdmin.from("perfis").insert({
       user_id: userId,
-      tipo: "GESTOR",
+      tipo: "ADMIN",
       nome: nome.trim(),
       cpf: cpfLimpo,
-      escola_id,
-      municipio_id: escola.municipio_id,
       data_nascimento, // precisa existir a coluna
-      rg: (rg ?? "").trim() || null,
-      telefone: (telefone ?? "").trim() || null,
-      email_contato: (email_contato ?? "").trim() || null,
       ativo: true,
     });
 
