@@ -6,8 +6,11 @@ import { supabase } from "../../../../../lib/supabaseClient";
 
 type Modalidade = { id: number; nome: string; tipo: "INDIVIDUAL" | "COLETIVA" };
 
+type EventoItem = { id: number; nome: string };
+
 type EventoModalidade = {
   id: number;
+  modalidade_id: number;
   categoria: "12-14" | "15-17";
   naipe: "M" | "F";
   min_por_escola: number | null;
@@ -21,13 +24,12 @@ type EventoModalidade = {
 
 export default function ConfigurarEventoPage() {
   const params = useParams();
-
-  // ✅ Correção: evita NaN quando params.id vem estranho/undefined
   const rawId = (params as any)?.id;
   const eventoId = Number(Array.isArray(rawId) ? rawId[0] : rawId);
 
   const [modalidades, setModalidades] = useState<Modalidade[]>([]);
   const [configs, setConfigs] = useState<EventoModalidade[]>([]);
+  const [eventos, setEventos] = useState<EventoItem[]>([]);
   const [msg, setMsg] = useState("");
 
   // form
@@ -43,25 +45,26 @@ export default function ConfigurarEventoPage() {
 
   const [limSub, setLimSub] = useState<string>("3");
 
+  // copiar configs
+  const [destEventoId, setDestEventoId] = useState<string>("");
+  const [substituirDestino, setSubstituirDestino] = useState(false);
+  const [copiando, setCopiando] = useState(false);
+
   const modalidadeSelecionada = useMemo(() => {
     const id = Number(modalidadeId);
     return modalidades.find((m) => m.id === id) ?? null;
   }, [modalidadeId, modalidades]);
 
   async function carregarModalidades() {
-    const { data, error } = await supabase
-      .from("modalidades")
-      .select("id, nome, tipo")
-      .order("nome");
-
-    if (error) {
-      setMsg("Erro ao carregar modalidades: " + error.message);
-      return;
-    }
-
+    const { data, error } = await supabase.from("modalidades").select("id, nome, tipo").order("nome");
+    if (error) return setMsg("Erro ao carregar modalidades: " + error.message);
     setModalidades((data ?? []) as unknown as Modalidade[]);
-    setMsg(`Modalidades carregadas: ${(data ?? []).length}`);
+  }
 
+  async function carregarEventos() {
+    const { data, error } = await supabase.from("eventos").select("id, nome").order("nome");
+    if (error) return setMsg("Erro ao carregar eventos: " + error.message);
+    setEventos((data ?? []) as any);
   }
 
   async function carregarConfigs() {
@@ -70,6 +73,7 @@ export default function ConfigurarEventoPage() {
       .select(
         `
         id,
+        modalidade_id,
         categoria,
         naipe,
         min_por_escola,
@@ -84,11 +88,7 @@ export default function ConfigurarEventoPage() {
       .eq("evento_id", eventoId)
       .order("created_at", { ascending: false });
 
-    if (error) {
-      setMsg("Erro ao carregar configs: " + error.message);
-      return;
-    }
-
+    if (error) return setMsg("Erro ao carregar configs: " + error.message);
     setConfigs((data ?? []) as unknown as EventoModalidade[]);
   }
 
@@ -96,10 +96,7 @@ export default function ConfigurarEventoPage() {
     setMsg("");
 
     const mid = Number(modalidadeId);
-    if (!mid) {
-      setMsg("Selecione a modalidade.");
-      return;
-    }
+    if (!mid) return setMsg("Selecione a modalidade.");
 
     const lim = Number(limSub) || 3;
 
@@ -125,14 +122,9 @@ export default function ConfigurarEventoPage() {
     }
 
     const { error } = await supabase.from("evento_modalidades").insert(payload);
-
-    if (error) {
-      setMsg("Erro ao salvar: " + error.message);
-      return;
-    }
+    if (error) return setMsg("Erro ao salvar: " + error.message);
 
     setMsg("Configuração criada ✅");
-
     setModalidadeId("");
     setMinEscola("");
     setMaxEscola("");
@@ -143,10 +135,107 @@ export default function ConfigurarEventoPage() {
     carregarConfigs();
   }
 
+  async function toggleAtivoConfig(c: EventoModalidade, ativo: boolean) {
+    setMsg("");
+    const { error } = await supabase.from("evento_modalidades").update({ ativo }).eq("id", c.id);
+    if (error) return setMsg("Erro ao atualizar: " + error.message);
+
+    setMsg(ativo ? "Config ativada ✅" : "Config desativada ✅");
+    carregarConfigs();
+  }
+
+  async function excluirConfig(c: EventoModalidade) {
+    const ok = window.confirm(
+      `Excluir esta configuração?\n\n${c.modalidades?.nome ?? "—"} • ${c.categoria} • ${c.naipe}`
+    );
+    if (!ok) return;
+
+    setMsg("");
+    const { error } = await supabase.from("evento_modalidades").delete().eq("id", c.id);
+    if (error) return setMsg("Erro ao excluir config: " + error.message);
+
+    setMsg("Config excluída ✅");
+    setConfigs((prev) => prev.filter((x) => x.id !== c.id));
+  }
+
+  async function copiarConfigsParaOutroEvento() {
+    const destId = Number(destEventoId);
+    if (!destId) return setMsg("Selecione o evento de destino.");
+
+    const ok = window.confirm(
+      `Copiar configurações do evento ${eventoId} para o evento ${destId}?\n\n${
+        substituirDestino ? "Vai APAGAR as configs do destino antes." : "Vai apenas ADICIONAR no destino."
+      }`
+    );
+    if (!ok) return;
+
+    setMsg("");
+    setCopiando(true);
+
+    // 1) pega configs do atual
+    const { data: origem, error: origemErr } = await supabase
+      .from("evento_modalidades")
+      .select(
+        `
+        modalidade_id,
+        categoria,
+        naipe,
+        min_por_escola,
+        max_por_escola,
+        min_por_equipe,
+        max_por_equipe,
+        limite_substituicoes,
+        ativo
+      `
+      )
+      .eq("evento_id", eventoId);
+
+    if (origemErr) {
+      setCopiando(false);
+      return setMsg("Erro ao buscar configs origem: " + origemErr.message);
+    }
+
+    const rows = (origem ?? []) as any[];
+
+    // 2) se substituir, apaga configs do destino
+    if (substituirDestino) {
+      const { error: delErr } = await supabase.from("evento_modalidades").delete().eq("evento_id", destId);
+      if (delErr) {
+        setCopiando(false);
+        return setMsg("Erro ao limpar destino: " + delErr.message);
+      }
+    }
+
+    // 3) insere no destino
+    if (rows.length > 0) {
+      const payload = rows.map((r) => ({
+        evento_id: destId,
+        modalidade_id: r.modalidade_id,
+        categoria: r.categoria,
+        naipe: r.naipe,
+        min_por_escola: r.min_por_escola,
+        max_por_escola: r.max_por_escola,
+        min_por_equipe: r.min_por_equipe,
+        max_por_equipe: r.max_por_equipe,
+        limite_substituicoes: r.limite_substituicoes,
+        ativo: r.ativo,
+      }));
+
+      const { error: insErr } = await supabase.from("evento_modalidades").insert(payload);
+      if (insErr) {
+        setCopiando(false);
+        return setMsg("Erro ao copiar configs: " + insErr.message);
+      }
+    }
+
+    setCopiando(false);
+    setMsg("Configs copiadas ✅");
+  }
+
   useEffect(() => {
-    // ✅ evita travar quando eventoId ainda não é número válido
     if (!Number.isFinite(eventoId)) return;
     carregarModalidades();
+    carregarEventos();
     carregarConfigs();
   }, [eventoId]);
 
@@ -156,17 +245,48 @@ export default function ConfigurarEventoPage() {
         Admin • Configurar Evento (ID: {Number.isFinite(eventoId) ? eventoId : "—"})
       </h1>
 
-      <div
-        style={{
-          marginTop: 16,
-          border: "1px solid #eee",
-          borderRadius: 10,
-          padding: 14,
-        }}
-      >
-        <h2 style={{ fontSize: 16, fontWeight: 700 }}>
-          Adicionar modalidade ao evento
-        </h2>
+      {/* COPIAR CONFIGS */}
+      <div style={{ marginTop: 14, border: "1px solid #eee", borderRadius: 10, padding: 14 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700 }}>Copiar configurações para outro evento</h2>
+
+        <div style={{ marginTop: 10, display: "grid", gap: 10, maxWidth: 520 }}>
+          <select
+            value={destEventoId}
+            onChange={(e) => setDestEventoId(e.target.value)}
+            style={{ padding: 10, border: "1px solid #ccc", borderRadius: 8 }}
+          >
+            <option value="">Selecione o evento destino...</option>
+            {eventos
+              .filter((x) => x.id !== eventoId)
+              .map((ev) => (
+                <option key={ev.id} value={ev.id}>
+                  {ev.nome} (ID {ev.id})
+                </option>
+              ))}
+          </select>
+
+          <label style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <input
+              type="checkbox"
+              checked={substituirDestino}
+              onChange={(e) => setSubstituirDestino(e.target.checked)}
+            />
+            <span>Substituir configs do destino (apagar antes)</span>
+          </label>
+
+          <button
+            onClick={copiarConfigsParaOutroEvento}
+            disabled={copiando}
+            style={{ padding: 10, borderRadius: 8, cursor: "pointer" }}
+          >
+            {copiando ? "Copiando..." : "Copiar configurações"}
+          </button>
+        </div>
+      </div>
+
+      {/* ADICIONAR CONFIG */}
+      <div style={{ marginTop: 16, border: "1px solid #eee", borderRadius: 10, padding: 14 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700 }}>Adicionar modalidade ao evento</h2>
 
         <div style={{ marginTop: 10, display: "grid", gap: 10, maxWidth: 520 }}>
           <select
@@ -241,10 +361,7 @@ export default function ConfigurarEventoPage() {
             style={{ padding: 10, border: "1px solid #ccc", borderRadius: 8 }}
           />
 
-          <button
-            onClick={adicionarConfig}
-            style={{ padding: 10, borderRadius: 8, cursor: "pointer" }}
-          >
+          <button onClick={adicionarConfig} style={{ padding: 10, borderRadius: 8, cursor: "pointer" }}>
             Adicionar ao evento
           </button>
 
@@ -252,9 +369,8 @@ export default function ConfigurarEventoPage() {
         </div>
       </div>
 
-      <h2 style={{ marginTop: 18, fontSize: 18, fontWeight: 700 }}>
-        Configurações criadas
-      </h2>
+      {/* LISTA CONFIGS */}
+      <h2 style={{ marginTop: 18, fontSize: 18, fontWeight: 700 }}>Configurações criadas</h2>
 
       <div style={{ marginTop: 8, border: "1px solid #eee", borderRadius: 10 }}>
         {configs.map((c) => (
@@ -264,7 +380,7 @@ export default function ConfigurarEventoPage() {
               padding: 12,
               borderBottom: "1px solid #eee",
               display: "grid",
-              gap: 4,
+              gap: 6,
             }}
           >
             <div style={{ fontWeight: 700 }}>
@@ -274,21 +390,50 @@ export default function ConfigurarEventoPage() {
 
             {c.modalidades?.tipo === "INDIVIDUAL" ? (
               <div style={{ fontSize: 13, opacity: 0.9 }}>
-                Limite por escola: {c.min_por_escola ?? "—"} até {c.max_por_escola ?? "—"} •
-                Substituições: {c.limite_substituicoes}
+                Limite por escola: {c.min_por_escola ?? "—"} até {c.max_por_escola ?? "—"} • Substituições:{" "}
+                {c.limite_substituicoes}
               </div>
             ) : (
               <div style={{ fontSize: 13, opacity: 0.9 }}>
-                Tamanho da equipe: {c.min_por_equipe ?? "—"} até {c.max_por_equipe ?? "—"} •
-                Substituições: {c.limite_substituicoes}
+                Tamanho da equipe: {c.min_por_equipe ?? "—"} até {c.max_por_equipe ?? "—"} • Substituições:{" "}
+                {c.limite_substituicoes}
               </div>
             )}
 
-            <div style={{ fontSize: 12, opacity: 0.8 }}>
-              {c.ativo ? "Ativo" : "Inativo"}
+            <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "flex-end" }}>
+              {c.ativo ? (
+                <button
+                  onClick={() => toggleAtivoConfig(c, false)}
+                  style={{ padding: "8px 10px", borderRadius: 8, cursor: "pointer" }}
+                >
+                  Desativar
+                </button>
+              ) : (
+                <button
+                  onClick={() => toggleAtivoConfig(c, true)}
+                  style={{ padding: "8px 10px", borderRadius: 8, cursor: "pointer" }}
+                >
+                  Ativar
+                </button>
+              )}
+
+              <button
+                onClick={() => excluirConfig(c)}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  border: "1px solid #fca5a5",
+                  background: "#fee2e2",
+                  color: "#991b1b",
+                }}
+              >
+                Excluir
+              </button>
             </div>
           </div>
         ))}
+
         {configs.length === 0 && <div style={{ padding: 12 }}>Nenhuma configuração ainda.</div>}
       </div>
     </main>
