@@ -5,7 +5,6 @@ import { useParams } from "next/navigation";
 import { supabase } from "../../../../../lib/supabaseClient";
 
 type Modalidade = { id: number; nome: string; tipo: "INDIVIDUAL" | "COLETIVA" };
-
 type EventoItem = { id: number; nome: string };
 
 type EventoModalidade = {
@@ -19,6 +18,10 @@ type EventoModalidade = {
   max_por_equipe: number | null;
   limite_substituicoes: number;
   ativo: boolean;
+
+  // ✅ NOVO
+  substituicoes_abertas: boolean;
+
   modalidades: { nome: string; tipo: "INDIVIDUAL" | "COLETIVA" } | null;
 };
 
@@ -82,6 +85,7 @@ export default function ConfigurarEventoPage() {
         max_por_equipe,
         limite_substituicoes,
         ativo,
+        substituicoes_abertas,
         modalidades ( nome, tipo )
       `
       )
@@ -107,6 +111,9 @@ export default function ConfigurarEventoPage() {
       naipe,
       limite_substituicoes: lim,
       ativo: true,
+
+      // ✅ NOVO: começa fechado por padrão (admin abre quando quiser)
+      substituicoes_abertas: false,
     };
 
     if (modalidadeSelecionada?.tipo === "INDIVIDUAL") {
@@ -144,6 +151,16 @@ export default function ConfigurarEventoPage() {
     carregarConfigs();
   }
 
+  // ✅ NOVO: abre/fecha substituições para o gestor nessa config
+  async function toggleSubstituicoesAbertas(c: EventoModalidade, aberto: boolean) {
+    setMsg("");
+    const { error } = await supabase.from("evento_modalidades").update({ substituicoes_abertas: aberto }).eq("id", c.id);
+    if (error) return setMsg("Erro ao atualizar substituições: " + error.message);
+
+    setMsg(aberto ? "Substituições ABERTAS ✅" : "Substituições FECHADAS ✅");
+    carregarConfigs();
+  }
+
   async function excluirConfig(c: EventoModalidade) {
     const ok = window.confirm(
       `Excluir esta configuração?\n\n${c.modalidades?.nome ?? "—"} • ${c.categoria} • ${c.naipe}`
@@ -172,7 +189,6 @@ export default function ConfigurarEventoPage() {
     setMsg("");
     setCopiando(true);
 
-    // 1) pega configs do atual
     const { data: origem, error: origemErr } = await supabase
       .from("evento_modalidades")
       .select(
@@ -185,7 +201,8 @@ export default function ConfigurarEventoPage() {
         min_por_equipe,
         max_por_equipe,
         limite_substituicoes,
-        ativo
+        ativo,
+        substituicoes_abertas
       `
       )
       .eq("evento_id", eventoId);
@@ -197,7 +214,6 @@ export default function ConfigurarEventoPage() {
 
     const rows = (origem ?? []) as any[];
 
-    // 2) se substituir, apaga configs do destino
     if (substituirDestino) {
       const { error: delErr } = await supabase.from("evento_modalidades").delete().eq("evento_id", destId);
       if (delErr) {
@@ -206,7 +222,6 @@ export default function ConfigurarEventoPage() {
       }
     }
 
-    // 3) insere no destino
     if (rows.length > 0) {
       const payload = rows.map((r) => ({
         evento_id: destId,
@@ -219,6 +234,7 @@ export default function ConfigurarEventoPage() {
         max_por_equipe: r.max_por_equipe,
         limite_substituicoes: r.limite_substituicoes,
         ativo: r.ativo,
+        substituicoes_abertas: r.substituicoes_abertas ?? false,
       }));
 
       const { error: insErr } = await supabase.from("evento_modalidades").insert(payload);
@@ -281,6 +297,8 @@ export default function ConfigurarEventoPage() {
           >
             {copiando ? "Copiando..." : "Copiar configurações"}
           </button>
+
+          {msg && <p>{msg}</p>}
         </div>
       </div>
 
@@ -380,7 +398,7 @@ export default function ConfigurarEventoPage() {
               padding: 12,
               borderBottom: "1px solid #eee",
               display: "grid",
-              gap: 6,
+              gap: 8,
             }}
           >
             <div style={{ fontWeight: 700 }}>
@@ -399,6 +417,35 @@ export default function ConfigurarEventoPage() {
                 {c.limite_substituicoes}
               </div>
             )}
+
+            {/* ✅ CONTROLE NOVO */}
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <span style={{ fontSize: 13, opacity: 0.85 }}>
+                Substituições p/ Gestor:
+              </span>
+
+              {c.substituicoes_abertas ? (
+                <button
+                  onClick={() => toggleSubstituicoesAbertas(c, false)}
+                  style={{ padding: "8px 10px", borderRadius: 8, cursor: "pointer" }}
+                >
+                  Fechar
+                </button>
+              ) : (
+                <button
+                  onClick={() => toggleSubstituicoesAbertas(c, true)}
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    cursor: "pointer",
+                    border: "1px solid #86efac",
+                    background: "#dcfce7",
+                  }}
+                >
+                  Abrir
+                </button>
+              )}
+            </div>
 
             <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "flex-end" }}>
               {c.ativo ? (
