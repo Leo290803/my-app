@@ -25,6 +25,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     ];
 
     const CONFERENCIA: NavItem[] = [
+      { href: "/admin/conferencia", label: "Conferência" },
       { href: "/admin/substituicoes", label: "Substituições" },
       { href: "/admin/pendencias", label: "Pendências" },
       { href: "/admin/relatorios", label: "Relatórios" },

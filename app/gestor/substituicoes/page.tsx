@@ -97,12 +97,22 @@ export default function GestorSubstituicoesPage() {
   // =========================================================
   // PERFIL
   async function carregarPerfil() {
-    setMsg("");
-    const { data, error } = await supabase.from("perfis").select("escola_id, municipio_id").maybeSingle();
-    if (error) return setMsg("Erro perfil: " + error.message);
-    if (!data?.escola_id || !data?.municipio_id) return setMsg("Perfil sem escola/município.");
-    setPerfil(data as Perfil);
-  }
+  setMsg("");
+
+  const { data: u } = await supabase.auth.getUser();
+  const userId = u.user?.id;
+  if (!userId) return setMsg("Usuário não autenticado.");
+
+  const { data, error } = await supabase
+    .from("perfis")
+    .select("escola_id, municipio_id")
+    .eq("user_id", userId)      // <-- ajuste aqui
+    .maybeSingle();
+
+  if (error) return setMsg("Erro perfil: " + error.message);
+  if (!data?.escola_id || !data?.municipio_id) return setMsg("Perfil sem escola/município.");
+  setPerfil(data);
+}
 
   // =========================================================
   // EVENTOS DISPONÍVEIS (baseado nas equipes da escola + evento_modalidades.substituicoes_abertas)

@@ -7,6 +7,8 @@ type Evento = { id: number; nome: string; municipio_id: number | null };
 type Municipio = { id: number; nome: string };
 type Escola = { id: number; nome: string; municipio_id: number };
 
+type ProvaOpt = { id: number; nome: string };
+
 type ModalidadeOpt = {
   evento_modalidade_id: number;
   modalidade_id: number;
@@ -26,6 +28,31 @@ type RowResumo = {
   escola_id: number;
   tipo: "INDIVIDUAL" | "COLETIVA";
   status: string;
+};
+
+type RowDetalhe = {
+  atleta_nome: string;
+  atleta_id?: number | null;
+  atleta_sexo?: string | null;
+
+  evento_id: number;
+  evento_nome: string;
+
+  modalidade_id: number;
+  modalidade_nome: string;
+  modalidade_tipo: string; // INDIVIDUAL/COLETIVA
+
+  categoria: string;
+  naipe: string;
+
+  prova_id?: number | null;
+  prova_nome?: string | null;
+
+  escola_id?: number | null;
+  municipio_id?: number | null;
+
+  status_inscr?: string | null; // ou status (depende da view)
+  origem?: string | null;
 };
 
 function downloadTextFile(filename: string, content: string, mime = "text/plain;charset=utf-8") {
@@ -58,15 +85,19 @@ export default function AdminRelatoriosPage() {
   const [fMunicipioId, setFMunicipioId] = useState<string>("");
   const [fEscolaId, setFEscolaId] = useState<string>("");
 
-  // ✅ filtros novos
-  const [fTipo, setFTipo] = useState<string>(""); // INDIVIDUAL/COLETIVA
-  const [fCategoria, setFCategoria] = useState<string>(""); // 12-14/15-17
-  const [fNaipe, setFNaipe] = useState<string>(""); // M/F
-  const [fStatus, setFStatus] = useState<string>(""); // ATIVA/CONCLUIDO/PENDENTE... depende da view
+  // filtros extra
+  const [fTipo, setFTipo] = useState<string>("");
+  const [fCategoria, setFCategoria] = useState<string>("");
+  const [fNaipe, setFNaipe] = useState<string>("");
+  const [fStatus, setFStatus] = useState<string>("");
 
   // modalidade depende do evento
   const [modalidades, setModalidades] = useState<ModalidadeOpt[]>([]);
   const [fModalidadeId, setFModalidadeId] = useState<string>("");
+
+  // ✅ provas (depende do evento e opcionalmente da modalidade)
+  const [provas, setProvas] = useState<ProvaOpt[]>([]);
+  const [fProvaId, setFProvaId] = useState<string>(""); // "" = Todas
 
   const [linhas, setLinhas] = useState<RowResumo[]>([]);
 
@@ -82,6 +113,61 @@ export default function AdminRelatoriosPage() {
   function nomeEscola(id: number) {
     return escolas.find((e) => e.id === id)?.nome ?? `Escola #${id}`;
   }
+
+  async function carregarProvas(evId: number, modId?: number) {
+    setProvas([]);
+    setFProvaId(""); // volta pra "Todas"
+    if (!evId) return;
+
+    const qs = new URLSearchParams();
+    qs.set("evento_id", String(evId));
+    if (modId) qs.set("modalidade_id", String(modId));
+
+    const res = await fetch(`/api/relatorios/provas?${qs.toString()}`);
+    const json = await res.json();
+
+    if (!res.ok) {
+      setMsg("Erro ao carregar provas: " + (json?.error ?? "erro"));
+      return;
+    }
+
+    setProvas(json.provas ?? []);
+  }
+
+  async function buscarDetalhado(): Promise<RowDetalhe[]> {
+  let q = supabase.from("v_relatorio_inscricoes").select("*");
+
+  const eid = Number(fEventoId);
+  const mid = Number(fMunicipioId);
+  const sid = Number(fEscolaId);
+  const modId = Number(fModalidadeId);
+  const pid = Number(fProvaId);
+
+  if (eid) q = q.eq("evento_id", eid);
+  if (mid) q = q.eq("municipio_id", mid);
+  if (sid) q = q.eq("escola_id", sid);
+  if (modId) q = q.eq("modalidade_id", modId);
+
+  // ✅ prova (se escolher uma prova específica)
+  if (pid) q = q.eq("prova_id", pid);
+
+  // ✅ tipo (na tua view é modalidade_tipo)
+  if (fTipo) q = q.eq("modalidade_tipo", fTipo);
+
+  if (fCategoria) q = q.eq("categoria", fCategoria);
+  if (fNaipe) q = q.eq("naipe", fNaipe);
+
+  // ✅ status (na tua view parece ser status_inscr)
+  if (fStatus) q = q.eq("status_inscr", fStatus);
+
+  const { data, error } = await q.order("atleta_nome", { ascending: true });
+
+  if (error) {
+    setMsg("Erro relatório detalhado: " + error.message);
+    return [];
+  }
+  return (data ?? []) as any;
+}
 
   async function carregarFiltrosBase() {
     const ev = await supabase.from("eventos").select("id, nome, municipio_id").order("created_at", { ascending: false });
@@ -140,11 +226,16 @@ export default function AdminRelatoriosPage() {
     const mid = Number(fMunicipioId);
     const sid = Number(fEscolaId);
     const modId = Number(fModalidadeId);
+    const pid = Number(fProvaId);
 
     if (eid) q = q.eq("evento_id", eid);
     if (mid) q = q.eq("municipio_id", mid);
     if (sid) q = q.eq("escola_id", sid);
     if (modId) q = q.eq("modalidade_id", modId);
+
+    // ✅ se a sua view v_inscricoes_resumo também tem prova_id, filtra aqui.
+    // Se não tiver, pode remover esta linha (ou criar a coluna na view).
+    if (pid) q = q.eq("prova_id", pid);
 
     if (fTipo) q = q.eq("tipo", fTipo);
     if (fCategoria) q = q.eq("categoria", fCategoria);
@@ -202,47 +293,77 @@ export default function AdminRelatoriosPage() {
     };
   }, [linhas, municipios, escolas]);
 
-  // KPIs que dependem de EVENTO (pra não ficar "0 mentiroso")
   const precisaEvento = useMemo(() => !Number(fEventoId), [fEventoId]);
 
-  function exportarCSV() {
-    // CSV (Excel abre normal)
-    const header = [
-      "evento_id",
-      "municipio_id",
-      "municipio_nome",
-      "escola_id",
-      "escola_nome",
-      "modalidade_id",
-      "modalidade_nome",
-      "tipo",
-      "categoria",
-      "naipe",
-      "status",
-    ];
+  async function exportarCSV() {
+  setMsg("Gerando CSV...");
 
-    const linhasCsv = linhas.map((r) => [
-      r.evento_id,
-      r.municipio_id,
-      nomeMun(r.municipio_id),
-      r.escola_id,
-      nomeEscola(r.escola_id),
-      r.modalidade_id,
-      r.modalidade_nome,
-      r.tipo,
-      r.categoria,
-      r.naipe,
-      r.status,
-    ]);
+  const rows = await buscarDetalhado();
+  if (rows.length === 0) return setMsg("Nenhum registro para o recorte selecionado.");
 
-    const csv = [header, ...linhasCsv].map((row) => row.map(csvEscape).join(",")).join("\n");
-    const nome = `relatorio_inscricoes_${new Date().toISOString().slice(0, 10)}.csv`;
-    downloadTextFile(nome, csv, "text/csv;charset=utf-8");
-  }
+  const header = [
+    "atleta_nome",
+    "evento",
+    "modalidade",
+    "tipo",
+    "prova",
+    "categoria",
+    "naipe",
+    "status",
+    "municipio_id",
+    "escola_id",
+  ];
 
-  function gerarPDF() {
-    // melhor jeito sem libs: print -> salvar como PDF
-    window.print();
+  const body = rows.map((r) => [
+    r.atleta_nome ?? "",
+    r.evento_nome ?? "",
+    r.modalidade_nome ?? "",
+    r.modalidade_tipo ?? "",
+    r.prova_nome ?? "",
+    r.categoria ?? "",
+    r.naipe ?? "",
+    r.status_inscr ?? "",
+    r.municipio_id ?? "",
+    r.escola_id ?? "",
+  ]);
+
+  const nome = `relatorio_inscricoes_${new Date()
+  .toISOString()
+  .slice(0, 10)}.csv`;
+
+const csv = [header, ...body]
+  .map((row) => row.map(csvEscape).join(";")) // 👈 usa ;
+  .join("\n");
+
+downloadTextFile(
+  nome,
+  "\uFEFF" + csv, // 👈 BOM para Excel
+  "text/csv;charset=utf-8;"
+);
+
+  setMsg("CSV gerado ✅");
+}
+
+  async function gerarPDF() {
+    setMsg("Gerando PDF...");
+
+    const params = new URLSearchParams();
+    if (fEventoId) params.set("evento_id", fEventoId);
+    if (fMunicipioId) params.set("municipio_id", fMunicipioId);
+    if (fEscolaId) params.set("escola_id", fEscolaId);
+    if (fModalidadeId) params.set("modalidade_id", fModalidadeId);
+
+    // ✅ prova_id só quando escolher uma prova específica
+    if (fProvaId) params.set("prova_id", fProvaId);
+
+    if (fTipo) params.set("tipo", fTipo);
+    if (fCategoria) params.set("categoria", fCategoria);
+    if (fNaipe) params.set("naipe", fNaipe);
+    if (fStatus) params.set("status", fStatus);
+
+    const url = `/api/relatorios/inscricoes?${params.toString()}`;
+    window.open(url, "_blank");
+    setMsg("PDF gerado ✅");
   }
 
   useEffect(() => {
@@ -258,14 +379,24 @@ export default function AdminRelatoriosPage() {
     setFEscolaId("");
   }, [fMunicipioId]);
 
-  // quando muda evento: carrega modalidades do evento e reseta filtros ligados
+  // quando muda evento: carrega modalidades e provas (todas do evento)
   useEffect(() => {
     (async () => {
       const eid = Number(fEventoId);
       await carregarModalidadesDoEvento(eid);
+      await carregarProvas(eid);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fEventoId]);
+
+  // quando muda modalidade: atualiza provas (do evento + modalidade)
+  useEffect(() => {
+    const eid = Number(fEventoId);
+    const mid = Number(fModalidadeId);
+    if (!eid) return;
+    carregarProvas(eid, mid || undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fModalidadeId]);
 
   const card: React.CSSProperties = { border: "1px solid #eee", borderRadius: 10, padding: 12, background: "#fff" };
   const tiny: React.CSSProperties = { fontSize: 12, opacity: 0.8 };
@@ -273,17 +404,9 @@ export default function AdminRelatoriosPage() {
 
   return (
     <main style={{ padding: 24, maxWidth: 1200 }}>
-      {/* CSS para impressão/PDF */}
-      <style>{`
-        @media print {
-          button, select { display: none !important; }
-          main { max-width: 100% !important; }
-        }
-      `}</style>
-
       <h1 style={{ fontSize: 24, fontWeight: 700 }}>Admin • Relatórios</h1>
 
-      {/* FILTROS */}
+      {/* FILTROS BASE */}
       <div style={{ marginTop: 14, display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr 1fr 1fr", alignItems: "end" }}>
         <div>
           <div style={tiny}>Evento</div>
@@ -334,8 +457,8 @@ export default function AdminRelatoriosPage() {
         </div>
       </div>
 
-      {/* FILTROS EXTRA */}
-      <div style={{ marginTop: 10, display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr" }}>
+      {/* FILTROS EXTRA (6 colunas agora, por causa de Prova) */}
+      <div style={{ marginTop: 10, display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr" }}>
         <div>
           <div style={tiny}>Tipo</div>
           <select value={fTipo} onChange={(e) => setFTipo(e.target.value)} style={{ padding: 10, width: "100%" }}>
@@ -347,11 +470,34 @@ export default function AdminRelatoriosPage() {
 
         <div>
           <div style={tiny}>Modalidade</div>
-          <select value={fModalidadeId} onChange={(e) => setFModalidadeId(e.target.value)} style={{ padding: 10, width: "100%" }} disabled={!Number(fEventoId)}>
+          <select
+            value={fModalidadeId}
+            onChange={(e) => setFModalidadeId(e.target.value)}
+            style={{ padding: 10, width: "100%" }}
+            disabled={!Number(fEventoId)}
+          >
             <option value="">{Number(fEventoId) ? "Todas" : "Selecione um evento"}</option>
             {modalidades.map((m) => (
               <option key={`${m.evento_modalidade_id}`} value={m.modalidade_id}>
                 {m.modalidade_nome} • {m.tipo} • {m.categoria} • {m.naipe}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* ✅ Prova */}
+        <div>
+          <div style={tiny}>Prova</div>
+          <select
+            value={fProvaId}
+            onChange={(e) => setFProvaId(e.target.value)}
+            style={{ padding: 10, width: "100%" }}
+            disabled={!Number(fEventoId)}
+          >
+            <option value="">{Number(fEventoId) ? "Todas" : "Selecione um evento"}</option>
+            {provas.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nome}
               </option>
             ))}
           </select>
@@ -379,7 +525,6 @@ export default function AdminRelatoriosPage() {
           <div style={tiny}>Status</div>
           <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} style={{ padding: 10, width: "100%" }}>
             <option value="">Todos</option>
-            {/* ajuste os status conforme tua view */}
             <option value="ATIVA">ATIVA</option>
             <option value="PENDENTE">PENDENTE</option>
             <option value="CONCLUIDO">CONCLUIDO</option>

@@ -48,7 +48,7 @@ export default function AdminConferenciaPage() {
   const [fMunicipio, setFMunicipio] = useState<string>("");
   const [fEscola, setFEscola] = useState<string>("");
   const [fTipo, setFTipo] = useState<string>("");
-  const [fStatus, setFStatus] = useState<Row["status"] | "">("PENDENTE"); // ✅ padrão
+  const [fStatus, setFStatus] = useState<Row["status"] | "">("PENDENTE"); // padrão
   const [buscaId, setBuscaId] = useState<string>(""); // busca por participante_id
 
   // seleção em lote
@@ -85,10 +85,6 @@ export default function AdminConferenciaPage() {
     setSelecionados(new Set());
   }
 
-  function chipOk(url: string | null) {
-    return url ? "✅" : "—";
-  }
-
   async function carregarFiltros() {
     setMsg("");
 
@@ -106,6 +102,13 @@ export default function AdminConferenciaPage() {
     setLoading(true);
     setSelecionados(new Set());
 
+    const mid = Number(fMunicipio);
+    const eid = Number(fEscola);
+
+    // escolas do município (pra filtrar no banco com .in)
+    const escolasDoMunicipioIds =
+      mid && !eid ? escolas.filter((x) => x.municipio_id === mid).map((x) => x.id) : [];
+
     let q = supabase
       .from("conferencia_itens")
       .select(
@@ -114,10 +117,19 @@ export default function AdminConferenciaPage() {
       .order("updated_at", { ascending: false })
       .limit(500);
 
-    const mid = Number(fMunicipio);
-    const eid = Number(fEscola);
-
     if (eid) q = q.eq("escola_id", eid);
+
+    // ✅ se escolheu município e não escolheu escola: filtra direto no banco
+    if (mid && !eid) {
+      if (escolasDoMunicipioIds.length === 0) {
+        setRows([]);
+        setLoading(false);
+        setMsg("Nenhuma escola encontrada para esse município.");
+        return;
+      }
+      q = q.in("escola_id", escolasDoMunicipioIds);
+    }
+
     if (fStatus) q = q.eq("status", fStatus);
     if (fTipo) q = q.eq("participante_tipo", fTipo);
 
@@ -133,15 +145,7 @@ export default function AdminConferenciaPage() {
       return;
     }
 
-    let list = (data ?? []) as Row[];
-
-    // se escolheu município e não escolheu escola: filtra por escolas daquele município (client-side)
-    if (mid && !eid) {
-      const escolasDoMunicipio = new Set(escolas.filter((x) => x.municipio_id === mid).map((x) => x.id));
-      list = list.filter((r) => (r.escola_id ? escolasDoMunicipio.has(r.escola_id) : false));
-    }
-
-    setRows(list);
+    setRows((data ?? []) as Row[]);
     setLoading(false);
   }
 
@@ -151,7 +155,7 @@ export default function AdminConferenciaPage() {
 
     const payload: any = { status, observacao_admin: obsAdmin ?? null };
 
-    // ✅ importante: aqui a gente atualiza a tabela real
+    // atualiza a tabela real
     const { error } = await supabase.from("participante_arquivos").update(payload).in("id", ids);
     if (error) return setMsg("Erro ao atualizar: " + error.message);
 
@@ -160,18 +164,27 @@ export default function AdminConferenciaPage() {
   }
 
   async function concluirSelecionados() {
-    await setStatus(Array.from(selecionados), "CONCLUIDO");
+    const ids = Array.from(selecionados);
+    if (ids.length === 0) return setMsg("Selecione pelo menos 1 item.");
+    if (!confirm(`Marcar ${ids.length} item(ns) como CONCLUÍDO?`)) return;
+    await setStatus(ids, "CONCLUIDO");
   }
 
   async function devolverPendenciaSelecionados() {
+    const ids = Array.from(selecionados);
+    if (ids.length === 0) return setMsg("Selecione pelo menos 1 item.");
     const obs = prompt("Observação para o gestor (opcional):") || "";
-    await setStatus(Array.from(selecionados), "PENDENTE", obs);
+    if (!confirm(`Voltar ${ids.length} item(ns) para PENDENTE?`)) return;
+    await setStatus(ids, "PENDENTE", obs);
   }
 
   async function rejeitarSelecionados() {
+    const ids = Array.from(selecionados);
+    if (ids.length === 0) return setMsg("Selecione pelo menos 1 item.");
     const obs = prompt("Motivo da rejeição (obrigatório):") || "";
     if (!obs.trim()) return setMsg("Informe o motivo da rejeição.");
-    await setStatus(Array.from(selecionados), "REJEITADO", obs.trim());
+    if (!confirm(`Marcar ${ids.length} item(ns) como REJEITADO?`)) return;
+    await setStatus(ids, "REJEITADO", obs.trim());
   }
 
   useEffect(() => {
@@ -184,27 +197,97 @@ export default function AdminConferenciaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fMunicipio, fEscola, fTipo, fStatus, buscaId, escolas.length]);
 
-  return (
-    <main style={{ padding: 24, maxWidth: 1300 }}>
-      <h1 style={{ fontSize: 24, fontWeight: 800 }}>Admin • Conferência (Pendências)</h1>
+  const styles = {
+    card: { border: "1px solid #eee", borderRadius: 12, padding: 12, background: "#fff" } as React.CSSProperties,
+    tiny: { fontSize: 12, opacity: 0.8 } as React.CSSProperties,
+    btn: { padding: 10, borderRadius: 10, cursor: "pointer" } as React.CSSProperties,
+    btnSm: { padding: "8px 10px", borderRadius: 10, cursor: "pointer" } as React.CSSProperties,
+    tableWrap: { marginTop: 12, border: "1px solid #eee", borderRadius: 12, overflow: "hidden", background: "#fff" } as React.CSSProperties,
+    head: {
+      display: "grid",
+      gridTemplateColumns: "78px 100px 1.4fr 1.6fr 150px 120px 320px",
+      gap: 0,
+      padding: "12px 12px",
+      background: "#fafafa",
+      fontWeight: 800,
+      borderBottom: "1px solid #eee",
+      alignItems: "center",
+    } as React.CSSProperties,
+    row: {
+      display: "grid",
+      gridTemplateColumns: "78px 100px 1.4fr 1.6fr 150px 120px 320px",
+      padding: "12px 12px",
+      borderBottom: "1px solid #eee",
+      alignItems: "center",
+    } as React.CSSProperties,
+    badge: (status: Row["status"]) =>
+      ({
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "6px 10px",
+        borderRadius: 999,
+        fontSize: 12,
+        fontWeight: 800,
+        border: "1px solid #eee",
+        background:
+          status === "PENDENTE" ? "#fff7ed" : status === "CONCLUIDO" ? "#ecfdf5" : "#fef2f2",
+      }) as React.CSSProperties,
+    linkPill: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 8,
+      padding: "6px 10px",
+      borderRadius: 999,
+      border: "1px solid #eee",
+      fontSize: 12,
+      textDecoration: "none",
+      color: "#111827",
+      background: "#fff",
+    } as React.CSSProperties,
+  };
 
-      {msg && (
-        <div style={{ marginTop: 10, padding: 10, border: "1px solid #eee", borderRadius: 10 }}>
-          {msg}
-        </div>
-      )}
+  function arquivosCell(r: Row) {
+    const itens: Array<{ label: string; url: string | null }> = [
+      { label: "Foto", url: r.foto_url },
+      { label: "Ficha", url: r.ficha_url },
+      { label: "Doc", url: r.doc_url },
+    ];
+
+    return (
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {itens.map((it) =>
+          it.url ? (
+            <a key={it.label} href={it.url} target="_blank" rel="noreferrer" style={styles.linkPill}>
+              ✅ {it.label}
+            </a>
+          ) : (
+            <span key={it.label} style={{ ...styles.linkPill, opacity: 0.5 }}>
+              — {it.label}
+            </span>
+          )
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <main style={{ padding: 24, maxWidth: 1400 }}>
+      <h1 style={{ fontSize: 24, fontWeight: 900 }}>Admin • Conferência (Pendências)</h1>
+
+      {msg && <div style={{ ...styles.card, marginTop: 10 }}>{msg}</div>}
 
       <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <div style={{ padding: 10, border: "1px solid #eee", borderRadius: 10 }}>
+        <div style={styles.card}>
           Total: <b>{contagem.total}</b>
         </div>
-        <div style={{ padding: 10, border: "1px solid #eee", borderRadius: 10 }}>
+        <div style={styles.card}>
           Pendentes: <b>{contagem.pend}</b>
         </div>
-        <div style={{ padding: 10, border: "1px solid #eee", borderRadius: 10 }}>
+        <div style={styles.card}>
           Concluídos: <b>{contagem.conc}</b>
         </div>
-        <div style={{ padding: 10, border: "1px solid #eee", borderRadius: 10 }}>
+        <div style={styles.card}>
           Rejeitados: <b>{contagem.rej}</b>
         </div>
       </div>
@@ -215,12 +298,12 @@ export default function AdminConferenciaPage() {
           marginTop: 14,
           display: "grid",
           gap: 10,
-          gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr",
+          gridTemplateColumns: "1.1fr 1.3fr 1fr 1fr 1fr",
           alignItems: "end",
         }}
       >
         <div>
-          <div style={{ fontSize: 12, opacity: 0.8 }}>Município</div>
+          <div style={styles.tiny}>Município</div>
           <select value={fMunicipio} onChange={(e) => setFMunicipio(e.target.value)} style={{ padding: 10, width: "100%" }}>
             <option value="">Todos</option>
             {municipios.map((m) => (
@@ -232,7 +315,7 @@ export default function AdminConferenciaPage() {
         </div>
 
         <div>
-          <div style={{ fontSize: 12, opacity: 0.8 }}>Escola</div>
+          <div style={styles.tiny}>Escola</div>
           <select value={fEscola} onChange={(e) => setFEscola(e.target.value)} style={{ padding: 10, width: "100%" }}>
             <option value="">Todas</option>
             {escolasFiltradas.map((e) => (
@@ -244,7 +327,7 @@ export default function AdminConferenciaPage() {
         </div>
 
         <div>
-          <div style={{ fontSize: 12, opacity: 0.8 }}>Tipo</div>
+          <div style={styles.tiny}>Tipo</div>
           <select value={fTipo} onChange={(e) => setFTipo(e.target.value)} style={{ padding: 10, width: "100%" }}>
             <option value="">Todos</option>
             <option value="ATLETA">ATLETA</option>
@@ -256,7 +339,7 @@ export default function AdminConferenciaPage() {
         </div>
 
         <div>
-          <div style={{ fontSize: 12, opacity: 0.8 }}>Status</div>
+          <div style={styles.tiny}>Status</div>
           <select value={fStatus} onChange={(e) => setFStatus(e.target.value as any)} style={{ padding: 10, width: "100%" }}>
             <option value="PENDENTE">PENDENTE</option>
             <option value="CONCLUIDO">CONCLUIDO</option>
@@ -266,7 +349,7 @@ export default function AdminConferenciaPage() {
         </div>
 
         <div>
-          <div style={{ fontSize: 12, opacity: 0.8 }}>Buscar por participante_id</div>
+          <div style={styles.tiny}>Buscar por participante_id</div>
           <input
             value={buscaId}
             onChange={(e) => setBuscaId(e.target.value)}
@@ -278,28 +361,28 @@ export default function AdminConferenciaPage() {
 
       {/* ações em lote */}
       <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-        <button onClick={selectAllCurrent} style={{ padding: 10, borderRadius: 8, cursor: "pointer" }}>
+        <button onClick={selectAllCurrent} style={styles.btn}>
           Selecionar todos da tela
         </button>
-        <button onClick={clearSelection} style={{ padding: 10, borderRadius: 8, cursor: "pointer" }}>
+        <button onClick={clearSelection} style={styles.btn}>
           Limpar seleção
         </button>
 
-        <div style={{ padding: 10, border: "1px solid #eee", borderRadius: 10 }}>
+        <div style={styles.card}>
           Selecionados: <b>{selecionados.size}</b>
         </div>
 
-        <button onClick={concluirSelecionados} style={{ padding: 10, borderRadius: 8, cursor: "pointer" }}>
+        <button onClick={concluirSelecionados} style={styles.btn}>
           Marcar CONCLUÍDO ✅
         </button>
-        <button onClick={devolverPendenciaSelecionados} style={{ padding: 10, borderRadius: 8, cursor: "pointer" }}>
+        <button onClick={devolverPendenciaSelecionados} style={styles.btn}>
           Voltar para PENDENTE ↩️
         </button>
-        <button onClick={rejeitarSelecionados} style={{ padding: 10, borderRadius: 8, cursor: "pointer" }}>
+        <button onClick={rejeitarSelecionados} style={styles.btn}>
           Marcar REJEITADO ❌
         </button>
 
-        <button onClick={carregar} style={{ padding: 10, borderRadius: 8, cursor: "pointer" }}>
+        <button onClick={carregar} style={styles.btn}>
           Recarregar
         </button>
 
@@ -307,108 +390,79 @@ export default function AdminConferenciaPage() {
       </div>
 
       {/* tabela */}
-      <div style={{ marginTop: 12, border: "1px solid #eee", borderRadius: 10, overflow: "hidden" }}>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "70px 90px 1.2fr 1.6fr 90px 90px 90px 120px 280px",
-            gap: 0,
-            padding: 10,
-            background: "#fafafa",
-            fontWeight: 800,
-            borderBottom: "1px solid #eee",
-          }}
-        >
+      <div style={styles.tableWrap}>
+        <div style={styles.head}>
           <div>#</div>
           <div>Tipo</div>
           <div>Participante</div>
           <div>Escola</div>
-          <div>Foto</div>
-          <div>Ficha</div>
-          <div>Doc</div>
+          <div>Arquivos</div>
           <div>Status</div>
           <div>Ações</div>
         </div>
 
-        {rows.map((r) => (
-          <div
-            key={r.id}
-            style={{
-              display: "grid",
-              gridTemplateColumns: "70px 90px 1.2fr 1.6fr 90px 90px 90px 120px 280px",
-              padding: 10,
-              borderBottom: "1px solid #eee",
-              alignItems: "center",
-              gap: 0,
-            }}
-          >
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input type="checkbox" checked={selecionados.has(r.id)} onChange={() => toggleSel(r.id)} />
-              <b>{r.id}</b>
+        {rows.map((r) => {
+          const selected = selecionados.has(r.id);
+          return (
+            <div
+              key={r.id}
+              style={{
+                ...styles.row,
+                background: selected ? "#f0f9ff" : "#fff",
+              }}
+            >
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input type="checkbox" checked={selected} onChange={() => toggleSel(r.id)} />
+                <b>{r.id}</b>
+              </div>
+
+              <div>{r.participante_tipo ?? "—"}</div>
+
+              <div>
+                <div style={{ fontWeight: 900 }}>{r.participante_nome ?? `ID ${r.participante_id ?? "—"}`}</div>
+                <div style={{ fontSize: 12, opacity: 0.75 }}>participante_id: {r.participante_id ?? "—"}</div>
+              </div>
+
+              <div>
+                <div style={{ fontWeight: 900 }}>{r.escola_nome ?? "—"}</div>
+                <div style={{ fontSize: 12, opacity: 0.75 }}>{r.municipio_nome ?? "—"}</div>
+              </div>
+
+              <div>{arquivosCell(r)}</div>
+
+              <div>
+                <span style={styles.badge(r.status)}>{r.status}</span>
+              </div>
+
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button onClick={() => setStatus([r.id], "CONCLUIDO")} style={styles.btnSm}>
+                  Concluir
+                </button>
+
+                <button
+                  onClick={() => {
+                    const obs = prompt("Observação para o gestor (opcional):") || "";
+                    setStatus([r.id], "PENDENTE", obs);
+                  }}
+                  style={styles.btnSm}
+                >
+                  Pend.
+                </button>
+
+                <button
+                  onClick={() => {
+                    const obs = prompt("Motivo da rejeição (obrigatório):") || "";
+                    if (!obs.trim()) return;
+                    setStatus([r.id], "REJEITADO", obs.trim());
+                  }}
+                  style={styles.btnSm}
+                >
+                  Rejeitar
+                </button>
+              </div>
             </div>
-
-            <div>{r.participante_tipo ?? "—"}</div>
-
-            <div>
-              <div style={{ fontWeight: 800 }}>{r.participante_nome ?? `ID ${r.participante_id ?? "—"}`}</div>
-              <div style={{ fontSize: 12, opacity: 0.75 }}>participante_id: {r.participante_id ?? "—"}</div>
-            </div>
-
-            <div>
-              <div style={{ fontWeight: 800 }}>{r.escola_nome ?? "—"}</div>
-              <div style={{ fontSize: 12, opacity: 0.75 }}>{r.municipio_nome ?? "—"}</div>
-            </div>
-
-            <div>{chipOk(r.foto_url)}</div>
-            <div>{chipOk(r.ficha_url)}</div>
-            <div>{chipOk(r.doc_url)}</div>
-
-            <div style={{ fontWeight: 800 }}>{r.status}</div>
-
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              {r.foto_url && (
-                <a href={r.foto_url} target="_blank" rel="noreferrer">
-                  Foto
-                </a>
-              )}
-              {r.ficha_url && (
-                <a href={r.ficha_url} target="_blank" rel="noreferrer">
-                  Ficha
-                </a>
-              )}
-              {r.doc_url && (
-                <a href={r.doc_url} target="_blank" rel="noreferrer">
-                  Doc
-                </a>
-              )}
-
-              <button onClick={() => setStatus([r.id], "CONCLUIDO")} style={{ padding: 8, borderRadius: 8, cursor: "pointer" }}>
-                Concluir
-              </button>
-
-              <button
-                onClick={() => {
-                  const obs = prompt("Observação para o gestor (opcional):") || "";
-                  setStatus([r.id], "PENDENTE", obs);
-                }}
-                style={{ padding: 8, borderRadius: 8, cursor: "pointer" }}
-              >
-                Pend.
-              </button>
-
-              <button
-                onClick={() => {
-                  const obs = prompt("Motivo da rejeição (obrigatório):") || "";
-                  if (!obs.trim()) return;
-                  setStatus([r.id], "REJEITADO", obs.trim());
-                }}
-                style={{ padding: 8, borderRadius: 8, cursor: "pointer" }}
-              >
-                Rejeitar
-              </button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
 
         {rows.length === 0 && <div style={{ padding: 12 }}>Nenhum registro encontrado.</div>}
       </div>
