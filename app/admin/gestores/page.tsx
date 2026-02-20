@@ -1,236 +1,334 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../../lib/supabaseClient";
 
-type EscolaItem = { id: number; nome: string };
+type Municipio = { id: number; nome: string };
 
-type GestorRow = {
-  user_id: string;
-  nome: string | null;
-  cpf: string | null;
-  escola_id: number | null;
-  ativo: boolean;
-  data_nascimento: string | null;
-  escolas?: { nome: string } | null;
+type Evento = {
+  id: number;
+  nome: string;
+  status: "ABERTO" | "ENCERRADO";
+  municipio_id: number;
+  inscricoes_abertas: boolean;
+  municipios: { nome: string } | null;
 };
 
-function onlyDigits(v: string) {
-  return (v ?? "").replace(/\D/g, "");
-}
-
-export default function GestoresPage() {
-  const [escolas, setEscolas] = useState<EscolaItem[]>([]);
-  const [lista, setLista] = useState<GestorRow[]>([]);
+export default function AdminEventosPage() {
+  const [municipios, setMunicipios] = useState<Municipio[]>([]);
+  const [eventos, setEventos] = useState<Evento[]>([]);
   const [msg, setMsg] = useState("");
 
+  // criar
+  const [municipioId, setMunicipioId] = useState<string>("");
+  const [nome, setNome] = useState("");
+
+  // pesquisa
   const [q, setQ] = useState("");
 
   // edição inline
-  const [editUserId, setEditUserId] = useState<string | null>(null);
+  const [editId, setEditId] = useState<number | null>(null);
   const [editNome, setEditNome] = useState("");
-  const [editCpf, setEditCpf] = useState("");
-  const [editEscolaId, setEditEscolaId] = useState<string>("");
-  const [editNascimento, setEditNascimento] = useState<string>(""); // yyyy-mm-dd
-  const [editRg, setEditRg] = useState("");
-  const [editTelefone, setEditTelefone] = useState("");
-  const [editEmailContato, setEditEmailContato] = useState("");
+  const [editMunicipioId, setEditMunicipioId] = useState<string>("");
+  const [editStatus, setEditStatus] = useState<"ABERTO" | "ENCERRADO">("ABERTO");
+  const [editInscricoes, setEditInscricoes] = useState(true);
+
   const [salvandoEdit, setSalvandoEdit] = useState(false);
+  const [excluindoId, setExcluindoId] = useState<number | null>(null);
+  const [duplicandoId, setDuplicandoId] = useState<number | null>(null);
 
-  const [desativandoId, setDesativandoId] = useState<string | null>(null);
-
-  async function carregarEscolas() {
-    const { data, error } = await supabase.from("escolas").select("id, nome").order("nome");
-    if (error) return setMsg("Erro ao carregar escolas: " + error.message);
-    setEscolas((data ?? []) as any);
+  async function carregarMunicipios() {
+    const { data, error } = await supabase.from("municipios").select("id, nome").order("nome");
+    if (error) return setMsg("Erro municípios: " + error.message);
+    setMunicipios((data ?? []) as unknown as Municipio[]);
   }
 
-  async function carregarGestores() {
-    setMsg("");
+  async function carregarEventos() {
     const { data, error } = await supabase
-      .from("perfis")
+      .from("eventos")
       .select(
         `
-        user_id,
+        id,
         nome,
-        cpf,
-        escola_id,
-        ativo,
-        data_nascimento,
-        rg,
-        telefone,
-        email_contato,
-        escolas (
-          nome
-        )
+        status,
+        municipio_id,
+        inscricoes_abertas,
+        municipios ( nome )
       `
       )
-      .eq("tipo", "GESTOR")
-      .order("nome");
+      .order("created_at", { ascending: false });
 
-    if (error) return setMsg("Erro ao carregar gestores: " + error.message);
-    setLista((data ?? []) as any);
+    if (error) return setMsg("Erro eventos: " + error.message);
+    setEventos((data ?? []) as unknown as Evento[]);
   }
 
-  function iniciarEdicao(g: any) {
+  async function adicionar() {
     setMsg("");
-    setEditUserId(g.user_id);
-    setEditNome(g.nome ?? "");
-    setEditCpf(onlyDigits(g.cpf ?? ""));
-    setEditEscolaId(g.escola_id ? String(g.escola_id) : "");
-    setEditNascimento(g.data_nascimento ?? "");
-    setEditRg(g.rg ?? "");
-    setEditTelefone(g.telefone ?? "");
-    setEditEmailContato(g.email_contato ?? "");
+    const mid = Number(municipioId);
+    if (!mid) return setMsg("Selecione o município do evento.");
+    if (!nome.trim()) return setMsg("Informe o nome do evento.");
+
+    const { error } = await supabase.from("eventos").insert({
+      nome: nome.trim(),
+      municipio_id: mid,
+      status: "ABERTO",
+      inscricoes_abertas: true,
+    });
+
+    if (error) return setMsg("Erro ao salvar: " + error.message);
+
+    setNome("");
+    setMunicipioId("");
+    setMsg("Evento criado ✅");
+    carregarEventos();
+  }
+
+  async function toggleInscricoes(eventoId: number, abrir: boolean) {
+    setMsg("");
+    const { error } = await supabase.from("eventos").update({ inscricoes_abertas: abrir }).eq("id", eventoId);
+    if (error) return setMsg("Erro ao atualizar: " + error.message);
+
+    setMsg(abrir ? "Inscrições reabertas ✅" : "Inscrições fechadas ✅");
+    carregarEventos();
+  }
+
+  async function toggleStatus(eventoId: number, status: "ABERTO" | "ENCERRADO") {
+    setMsg("");
+    const { error } = await supabase.from("eventos").update({ status }).eq("id", eventoId);
+    if (error) return setMsg("Erro ao atualizar status: " + error.message);
+
+    // se encerrar, fecha inscrições junto (opcional, mas faz sentido)
+    if (status === "ENCERRADO") {
+      await supabase.from("eventos").update({ inscricoes_abertas: false }).eq("id", eventoId);
+    }
+
+    setMsg(status === "ENCERRADO" ? "Evento encerrado ✅" : "Evento reaberto ✅");
+    carregarEventos();
+  }
+
+  function iniciarEdicao(e: Evento) {
+    setMsg("");
+    setEditId(e.id);
+    setEditNome(e.nome ?? "");
+    setEditMunicipioId(String(e.municipio_id ?? ""));
+    setEditStatus(e.status);
+    setEditInscricoes(!!e.inscricoes_abertas);
   }
 
   function cancelarEdicao() {
-    setEditUserId(null);
+    setEditId(null);
     setEditNome("");
-    setEditCpf("");
-    setEditEscolaId("");
-    setEditNascimento("");
-    setEditRg("");
-    setEditTelefone("");
-    setEditEmailContato("");
+    setEditMunicipioId("");
+    setEditStatus("ABERTO");
+    setEditInscricoes(true);
   }
 
   async function salvarEdicao() {
-    if (!editUserId) return;
+    if (!editId) return;
 
-    const nome = editNome.trim();
-    const cpf = onlyDigits(editCpf);
-    const escolaIdNum = Number(editEscolaId);
+    const n = editNome.trim();
+    const mid = Number(editMunicipioId);
 
-    if (!nome) return setMsg("Informe o nome.");
-    if (!cpf || cpf.length !== 11) return setMsg("CPF inválido (11 dígitos).");
-    if (!escolaIdNum) return setMsg("Selecione a escola.");
-    if (!editNascimento) return setMsg("Informe a data de nascimento.");
+    if (!n) return setMsg("Informe o nome.");
+    if (!mid) return setMsg("Selecione o município.");
 
-    setSalvandoEdit(true);
     setMsg("");
-
-    // pega municipio_id da escola pra manter coerência do perfil
-    const { data: escolaRow, error: escolaErr } = await supabase
-      .from("escolas")
-      .select("municipio_id")
-      .eq("id", escolaIdNum)
-      .maybeSingle();
-
-    if (escolaErr) {
-      setSalvandoEdit(false);
-      return setMsg("Erro ao buscar município da escola: " + escolaErr.message);
-    }
+    setSalvandoEdit(true);
 
     const { error } = await supabase
-      .from("perfis")
+      .from("eventos")
       .update({
-        nome,
-        cpf,
-        escola_id: escolaIdNum,
-        municipio_id: escolaRow?.municipio_id ?? null,
-        data_nascimento: editNascimento,
-        rg: editRg.trim() || null,
-        telefone: editTelefone.trim() || null,
-        email_contato: editEmailContato.trim() || null,
+        nome: n,
+        municipio_id: mid,
+        status: editStatus,
+        inscricoes_abertas: editInscricoes,
       })
-      .eq("user_id", editUserId)
-      .eq("tipo", "GESTOR");
+      .eq("id", editId);
 
     setSalvandoEdit(false);
 
     if (error) return setMsg("Erro ao salvar edição: " + error.message);
 
-    setMsg("Gestor atualizado ✅");
+    setMsg("Evento atualizado ✅");
     cancelarEdicao();
-    carregarGestores();
+    carregarEventos();
   }
 
-  async function desativar(g: GestorRow) {
+  // excluir real: tenta remover configs e depois o evento.
+  // se tiver outras FKs, vai acusar erro => aí você me manda o nome do constraint e a tabela que eu te dou o SQL CASCADE.
+  async function excluirEvento(e: Evento) {
     const ok = window.confirm(
-      `Desativar o gestor "${g.nome ?? "—"}"?\n\nEle não conseguirá acessar o sistema.`
+      `Excluir o evento "${e.nome}"?\n\nIsso tentará apagar também as configurações (evento_modalidades) do evento.`
     );
     if (!ok) return;
 
     setMsg("");
-    setDesativandoId(g.user_id);
+    setExcluindoId(e.id);
 
-    const { error } = await supabase
-      .from("perfis")
-      .update({ ativo: false })
-      .eq("user_id", g.user_id)
-      .eq("tipo", "GESTOR");
+    // 1) apaga configs do evento (pra não travar)
+    const { error: cfgErr } = await supabase.from("evento_modalidades").delete().eq("evento_id", e.id);
+    if (cfgErr) {
+      setExcluindoId(null);
+      return setMsg("Erro ao remover configurações (evento_modalidades): " + cfgErr.message);
+    }
 
-    setDesativandoId(null);
+    // 2) apaga evento
+    const { error } = await supabase.from("eventos").delete().eq("id", e.id);
 
-    if (error) return setMsg("Erro ao desativar: " + error.message);
+    setExcluindoId(null);
 
-    setMsg("Gestor desativado ✅");
-    carregarGestores();
+    if (error) return setMsg("Erro ao excluir evento: " + error.message);
+
+    setMsg("Evento excluído ✅");
+    setEventos((prev) => prev.filter((x) => x.id !== e.id));
+  }
+
+  // duplicar: cria evento novo e copia configs do evento_modalidades
+  async function duplicarEvento(orig: Evento) {
+    const ok = window.confirm(`Duplicar o evento "${orig.nome}"?\n\nVai criar um novo evento e copiar as configurações.`);
+    if (!ok) return;
+
+    setMsg("");
+    setDuplicandoId(orig.id);
+
+    // 1) cria evento novo
+    const nomeNovo = `${orig.nome} (CÓPIA)`;
+    const { data: novoEvento, error: insErr } = await supabase
+      .from("eventos")
+      .insert({
+        nome: nomeNovo,
+        municipio_id: orig.municipio_id,
+        status: "ABERTO",
+        inscricoes_abertas: false, // normalmente começa fechado
+      })
+      .select("id")
+      .single();
+
+    if (insErr || !novoEvento?.id) {
+      setDuplicandoId(null);
+      return setMsg("Erro ao criar evento duplicado: " + (insErr?.message ?? "sem id"));
+    }
+
+    const novoId = novoEvento.id as number;
+
+    // 2) pega configs do evento antigo
+    const { data: cfgs, error: getErr } = await supabase
+      .from("evento_modalidades")
+      .select(
+        `
+        modalidade_id,
+        categoria,
+        naipe,
+        min_por_escola,
+        max_por_escola,
+        min_por_equipe,
+        max_por_equipe,
+        limite_substituicoes,
+        ativo
+      `
+      )
+      .eq("evento_id", orig.id);
+
+    if (getErr) {
+      setDuplicandoId(null);
+      return setMsg("Evento criado, mas falhou ao copiar configs: " + getErr.message);
+    }
+
+    const rows = (cfgs ?? []) as any[];
+
+    if (rows.length > 0) {
+      const payload = rows.map((r) => ({
+        evento_id: novoId,
+        modalidade_id: r.modalidade_id,
+        categoria: r.categoria,
+        naipe: r.naipe,
+        min_por_escola: r.min_por_escola,
+        max_por_escola: r.max_por_escola,
+        min_por_equipe: r.min_por_equipe,
+        max_por_equipe: r.max_por_equipe,
+        limite_substituicoes: r.limite_substituicoes,
+        ativo: r.ativo,
+      }));
+
+      const { error: copyErr } = await supabase.from("evento_modalidades").insert(payload);
+      if (copyErr) {
+        setDuplicandoId(null);
+        return setMsg("Evento criado, mas erro ao copiar configs: " + copyErr.message);
+      }
+    }
+
+    setDuplicandoId(null);
+    setMsg(`Evento duplicado ✅ Novo ID: ${novoId}`);
+    carregarEventos();
   }
 
   useEffect(() => {
-    carregarEscolas();
-    carregarGestores();
+    carregarMunicipios();
+    carregarEventos();
   }, []);
 
   const filtrados = useMemo(() => {
     const termo = q.trim().toLowerCase();
-    if (!termo) return lista;
-
-    const tDigits = onlyDigits(termo);
-
-    return lista.filter((g) => {
-      const nome = (g.nome ?? "").toLowerCase();
-      const cpf = onlyDigits(g.cpf ?? "");
-      const escola = (g.escolas?.nome ?? "").toLowerCase();
-      return (
-        nome.includes(termo) ||
-        escola.includes(termo) ||
-        (tDigits && cpf.includes(tDigits))
-      );
+    if (!termo) return eventos;
+    return eventos.filter((e) => {
+      const nome = (e.nome ?? "").toLowerCase();
+      const mun = (e.municipios?.nome ?? "").toLowerCase();
+      return nome.includes(termo) || mun.includes(termo) || String(e.id).includes(termo);
     });
-  }, [q, lista]);
+  }, [q, eventos]);
 
   return (
-    <main style={{ padding: 24, maxWidth: 1100 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700 }}>Admin • Gestores</h1>
+    <main style={{ padding: 24, maxWidth: 1150 }}>
+      <h1 style={{ fontSize: 24, fontWeight: 700 }}>Admin • Eventos</h1>
 
-        <Link
-          href="/admin/gestores/novo"
-          style={{
-            padding: "10px 14px",
-            borderRadius: 8,
-            background: "#1d4ed8",
-            color: "#fff",
-            textDecoration: "none",
-            fontWeight: 700,
-          }}
+      {/* CRIAR */}
+      <div style={{ marginTop: 16, display: "grid", gap: 10, maxWidth: 720 }}>
+        <select
+          value={municipioId}
+          onChange={(e) => setMunicipioId(e.target.value)}
+          style={{ padding: 10, border: "1px solid #ccc", borderRadius: 8 }}
         >
-          Cadastrar novo gestor
-        </Link>
+          <option value="">Selecione o município...</option>
+          {municipios.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.nome}
+            </option>
+          ))}
+        </select>
+
+        <input
+          placeholder='Nome do evento (ex: "JERS 2026 – Fase Municipal Caracaraí")'
+          value={nome}
+          onChange={(e) => setNome(e.target.value)}
+          style={{ padding: 10, border: "1px solid #ccc", borderRadius: 8 }}
+        />
+
+        <button onClick={adicionar} style={{ padding: 10, borderRadius: 8, cursor: "pointer" }}>
+          Criar evento
+        </button>
+
+        {msg && <p>{msg}</p>}
       </div>
 
-      <div style={{ marginTop: 12, maxWidth: 620 }}>
+      <h2 style={{ marginTop: 28, fontSize: 18, fontWeight: 700 }}>Lista</h2>
+
+      {/* PESQUISA */}
+      <div style={{ marginTop: 10, maxWidth: 720 }}>
         <input
-          placeholder="Pesquisar por nome do gestor, CPF ou escola..."
+          placeholder="Pesquisar por nome, município ou ID..."
           value={q}
           onChange={(e) => setQ(e.target.value)}
           style={{ width: "100%", padding: 10, border: "1px solid #ccc", borderRadius: 8 }}
         />
       </div>
 
-      {msg && <p style={{ marginTop: 10 }}>{msg}</p>}
-
-      <h2 style={{ marginTop: 18, fontSize: 18, fontWeight: 700 }}>Lista</h2>
-
-      <div style={{ marginTop: 8, border: "1px solid #eee", borderRadius: 8, overflow: "hidden" }}>
+      <div style={{ marginTop: 10, border: "1px solid #eee", borderRadius: 10, overflow: "hidden" }}>
+        {/* Cabeçalho */}
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "1fr 1fr 180px 120px 260px",
+            gridTemplateColumns: "1.2fr 0.6fr 0.8fr 0.8fr 1.2fr",
             gap: 10,
             padding: 12,
             fontWeight: 700,
@@ -238,82 +336,101 @@ export default function GestoresPage() {
             borderBottom: "1px solid #eee",
           }}
         >
-          <span>Gestor</span>
-          <span>Escola</span>
-          <span>CPF</span>
+          <span>Evento</span>
           <span>Status</span>
-          <span style={{ textAlign: "right" }}>Ações</span>
+          <span>Inscrições</span>
+          <span>Config</span>
+          <span>Ações</span>
         </div>
 
-        {filtrados.map((g) => {
-          const editando = editUserId === g.user_id;
+        {filtrados.map((e) => {
+          const editando = editId === e.id;
 
           return (
             <div
-              key={g.user_id}
+              key={e.id}
               style={{
                 display: "grid",
-                gridTemplateColumns: "1fr 1fr 180px 120px 260px",
+                gridTemplateColumns: "1.2fr 0.6fr 0.8fr 0.8fr 1.2fr",
                 gap: 10,
                 padding: 12,
                 borderBottom: "1px solid #eee",
                 alignItems: "center",
               }}
             >
-              {/* Nome */}
+              {/* evento */}
               <div>
                 {editando ? (
-                  <input
-                    value={editNome}
-                    onChange={(e) => setEditNome(e.target.value)}
-                    style={{ width: "100%", padding: 8, border: "1px solid #ccc", borderRadius: 8 }}
-                  />
+                  <>
+                    <input
+                      value={editNome}
+                      onChange={(ev) => setEditNome(ev.target.value)}
+                      style={{ width: "100%", padding: 8, border: "1px solid #ccc", borderRadius: 8 }}
+                    />
+                    <div style={{ marginTop: 8 }}>
+                      <select
+                        value={editMunicipioId}
+                        onChange={(ev) => setEditMunicipioId(ev.target.value)}
+                        style={{ width: "100%", padding: 8, border: "1px solid #ccc", borderRadius: 8 }}
+                      >
+                        <option value="">Selecione município...</option>
+                        {municipios.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.nome}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
                 ) : (
-                  <span>{g.nome ?? "—"}</span>
+                  <>
+                    <div style={{ fontWeight: 700 }}>{e.nome}</div>
+                    <div style={{ fontSize: 12, opacity: 0.8 }}>
+                      Município: {e.municipios ? e.municipios.nome : "—"} • ID: {e.id}
+                    </div>
+                  </>
                 )}
               </div>
 
-              {/* Escola */}
+              {/* status */}
               <div>
                 {editando ? (
                   <select
-                    value={editEscolaId}
-                    onChange={(e) => setEditEscolaId(e.target.value)}
+                    value={editStatus}
+                    onChange={(ev) => setEditStatus(ev.target.value as any)}
                     style={{ width: "100%", padding: 8, border: "1px solid #ccc", borderRadius: 8 }}
                   >
-                    <option value="">Selecione...</option>
-                    {escolas.map((e) => (
-                      <option key={e.id} value={e.id}>
-                        {e.nome}
-                      </option>
-                    ))}
+                    <option value="ABERTO">ABERTO</option>
+                    <option value="ENCERRADO">ENCERRADO</option>
                   </select>
                 ) : (
-                  <span>{g.escolas?.nome ?? "—"}</span>
+                  <span>{e.status}</span>
                 )}
               </div>
 
-              {/* CPF */}
+              {/* inscrições */}
               <div>
                 {editando ? (
-                  <input
-                    value={editCpf}
-                    onChange={(e) => setEditCpf(onlyDigits(e.target.value))}
-                    placeholder="11 dígitos"
-                    style={{ width: "100%", padding: 8, border: "1px solid #ccc", borderRadius: 8 }}
-                  />
+                  <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={editInscricoes}
+                      onChange={(ev) => setEditInscricoes(ev.target.checked)}
+                    />
+                    <span>{editInscricoes ? "ABERTAS" : "FECHADAS"}</span>
+                  </label>
                 ) : (
-                  <span>{g.cpf ?? "—"}</span>
+                  <span style={{ fontWeight: 700 }}>{e.inscricoes_abertas ? "ABERTAS" : "FECHADAS"}</span>
                 )}
               </div>
 
-              {/* Status */}
+              {/* configurar */}
               <div>
-                <span>{g.ativo ? "Ativo" : "Inativo"}</span>
+                <Link href={`/admin/eventos/${e.id}/configurar`}>Configurar</Link>
               </div>
 
-              {/* Ações */}
-              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              {/* ações */}
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
                 {editando ? (
                   <>
                     <button
@@ -329,7 +446,6 @@ export default function GestoresPage() {
                     >
                       {salvandoEdit ? "Salvando..." : "Salvar"}
                     </button>
-
                     <button
                       onClick={cancelarEdicao}
                       style={{
@@ -346,7 +462,7 @@ export default function GestoresPage() {
                 ) : (
                   <>
                     <button
-                      onClick={() => iniciarEdicao(g)}
+                      onClick={() => iniciarEdicao(e)}
                       style={{
                         padding: "8px 10px",
                         borderRadius: 8,
@@ -358,9 +474,56 @@ export default function GestoresPage() {
                       Editar
                     </button>
 
+                    {e.inscricoes_abertas ? (
+                      <button
+                        onClick={() => toggleInscricoes(e.id, false)}
+                        style={{ padding: "8px 10px", borderRadius: 8, cursor: "pointer" }}
+                      >
+                        Fechar inscrições
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => toggleInscricoes(e.id, true)}
+                        style={{ padding: "8px 10px", borderRadius: 8, cursor: "pointer" }}
+                      >
+                        Reabrir inscrições
+                      </button>
+                    )}
+
+                    {e.status === "ABERTO" ? (
+                      <button
+                        onClick={() => toggleStatus(e.id, "ENCERRADO")}
+                        style={{ padding: "8px 10px", borderRadius: 8, cursor: "pointer" }}
+                      >
+                        Encerrar
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => toggleStatus(e.id, "ABERTO")}
+                        style={{ padding: "8px 10px", borderRadius: 8, cursor: "pointer" }}
+                      >
+                        Reabrir
+                      </button>
+                    )}
+
                     <button
-                      onClick={() => desativar(g)}
-                      disabled={desativandoId === g.user_id}
+                      onClick={() => duplicarEvento(e)}
+                      disabled={duplicandoId === e.id}
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: 8,
+                        cursor: "pointer",
+                        border: "1px solid #ddd",
+                        background: "#fff",
+                        opacity: duplicandoId === e.id ? 0.6 : 1,
+                      }}
+                    >
+                      {duplicandoId === e.id ? "Duplicando..." : "Duplicar"}
+                    </button>
+
+                    <button
+                      onClick={() => excluirEvento(e)}
+                      disabled={excluindoId === e.id}
                       style={{
                         padding: "8px 10px",
                         borderRadius: 8,
@@ -368,68 +531,19 @@ export default function GestoresPage() {
                         border: "1px solid #fca5a5",
                         background: "#fee2e2",
                         color: "#991b1b",
-                        opacity: desativandoId === g.user_id ? 0.6 : 1,
+                        opacity: excluindoId === e.id ? 0.6 : 1,
                       }}
                     >
-                      {desativandoId === g.user_id ? "..." : "Desativar"}
+                      {excluindoId === e.id ? "Excluindo..." : "Excluir"}
                     </button>
                   </>
                 )}
               </div>
-
-              {/* campos extras só quando editando (em “linha abaixo”) */}
-              {editando ? (
-                <div style={{ gridColumn: "1 / -1", marginTop: 10 }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>Nascimento *</div>
-                      <input
-                        type="date"
-                        value={editNascimento}
-                        onChange={(e) => setEditNascimento(e.target.value)}
-                        style={{ width: "100%", padding: 8, border: "1px solid #ccc", borderRadius: 8 }}
-                      />
-                    </div>
-
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>RG</div>
-                      <input
-                        value={editRg}
-                        onChange={(e) => setEditRg(e.target.value)}
-                        style={{ width: "100%", padding: 8, border: "1px solid #ccc", borderRadius: 8 }}
-                      />
-                    </div>
-
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>Telefone</div>
-                      <input
-                        value={editTelefone}
-                        onChange={(e) => setEditTelefone(e.target.value)}
-                        style={{ width: "100%", padding: 8, border: "1px solid #ccc", borderRadius: 8 }}
-                      />
-                    </div>
-
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>Email (contato)</div>
-                      <input
-                        value={editEmailContato}
-                        onChange={(e) => setEditEmailContato(e.target.value)}
-                        style={{ width: "100%", padding: 8, border: "1px solid #ccc", borderRadius: 8 }}
-                      />
-                    </div>
-                  </div>
-
-                  <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75 }}>
-                    ⚠️ Regra da senha (quando cria): <b>anoNascimento + últimos 4 do CPF</b>. Ex.: 2001 + 1234 ={" "}
-                    <b>20011234</b>
-                  </div>
-                </div>
-              ) : null}
             </div>
           );
         })}
 
-        {filtrados.length === 0 && <div style={{ padding: 12 }}>Nenhum gestor encontrado.</div>}
+        {filtrados.length === 0 && <div style={{ padding: 12 }}>Nenhum evento encontrado.</div>}
       </div>
     </main>
   );
