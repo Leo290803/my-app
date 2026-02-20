@@ -10,7 +10,12 @@ type Perfil = {
   ativo?: boolean;
 };
 
-type Evento = { id: number; nome: string; municipio_id: number | null; inscricoes_abertas?: boolean };
+type Evento = {
+  id: number;
+  nome: string;
+  municipio_id: number | null;
+  inscricoes_abertas?: boolean;
+};
 
 type EventoModalidade = {
   id: number;
@@ -57,13 +62,13 @@ type Equipe = {
 
 type Membro = { id: number; atleta_id: number };
 
-// =================== NOVO: Comissão Técnica (por evento) ===================
+// =================== Comissão Técnica (por evento) ===================
 type Tecnico = {
   id: number;
   escola_id: number;
   nome: string;
   cpf?: string | null;
-  funcao?: string | null; // ex: Técnico, Auxiliar, Chefe de Delegação, etc
+  funcao?: string | null;
   ativo?: boolean;
 };
 
@@ -72,10 +77,10 @@ type EventoTecnico = {
   evento_id: number;
   comissao_id: number;
   escola_id: number;
-  status?: string | null; // ATIVO/CANCELADO (opcional)
-  comissao_tecnica?: { id: number; nome: string; cpf?: string | null; funcao?: string | null } | null;
+  status?: string | null;
+  equipe_tecnica?: { id: number; nome: string; cpf?: string | null; funcao?: string | null } | null;
 };
-// ==========================================================================
+// =====================================================================
 
 function onlyDigits(v: string) {
   return (v ?? "").replace(/\D/g, "");
@@ -110,6 +115,9 @@ export default function GestorInscricoesUnificadoPage() {
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [eventoId, setEventoId] = useState<string>("");
 
+const [tab, setTab] = useState<"IND" | "COL">("IND");
+
+
   const [eventoModalidades, setEventoModalidades] = useState<EventoModalidade[]>([]);
 
   // ---------- INDIVIDUAL ----------
@@ -140,7 +148,7 @@ export default function GestorInscricoesUnificadoPage() {
   const [atletaSelColId, setAtletaSelColId] = useState<string>("");
   const [carregandoCol, setCarregandoCol] = useState(false);
 
-  // =================== NOVO: Comissão Técnica ===================
+  // =================== Comissão Técnica ===================
   const [qTecNome, setQTecNome] = useState("");
   const [qTecCpf, setQTecCpf] = useState("");
   const [tecnicos, setTecnicos] = useState<Tecnico[]>([]);
@@ -148,7 +156,7 @@ export default function GestorInscricoesUnificadoPage() {
   const [carregandoTec, setCarregandoTec] = useState(false);
 
   const [tecnicosEvento, setTecnicosEvento] = useState<EventoTecnico[]>([]);
-  // =============================================================
+  // =======================================================
 
   // ---------- helpers ----------
   function exigirEventoAberto() {
@@ -540,7 +548,10 @@ export default function GestorInscricoesUnificadoPage() {
       if (eCanc) return setMsg("Erro ao verificar cancelada: " + eCanc.message);
 
       if (cancelada?.id) {
-        const { error: upErr } = await supabase.from("inscricoes_provas").update({ status: "ATIVA" }).eq("id", cancelada.id);
+        const { error: upErr } = await supabase
+          .from("inscricoes_provas")
+          .update({ status: "ATIVA" })
+          .eq("id", cancelada.id);
         if (upErr) return setMsg("Erro ao reativar: " + upErr.message);
 
         setMsg("Inscrição reativada ✅");
@@ -587,7 +598,10 @@ export default function GestorInscricoesUnificadoPage() {
     if (eCancInd) return setMsg("Erro ao verificar cancelada: " + eCancInd.message);
 
     if (canceladaInd?.id) {
-      const { error: upErr } = await supabase.from("inscricoes_individuais").update({ status: "ATIVA" }).eq("id", canceladaInd.id);
+      const { error: upErr } = await supabase
+        .from("inscricoes_individuais")
+        .update({ status: "ATIVA" })
+        .eq("id", canceladaInd.id);
       if (upErr) return setMsg("Erro ao reativar: " + upErr.message);
 
       setMsg("Inscrição reativada ✅");
@@ -612,7 +626,10 @@ export default function GestorInscricoesUnificadoPage() {
     if (!exigirEventoAberto()) return;
 
     if (tipo === "PROVA") {
-      const { error } = await supabase.from("inscricoes_provas").update({ status: "CANCELADA" }).eq("id", id);
+      const { error } = await supabase
+        .from("inscricoes_provas")
+        .update({ status: "CANCELADA" })
+        .eq("id", id);
       if (error) return setMsg("Erro ao cancelar: " + error.message);
 
       setMsg("Cancelado ✅");
@@ -624,7 +641,10 @@ export default function GestorInscricoesUnificadoPage() {
       return;
     }
 
-    const { error } = await supabase.from("inscricoes_individuais").update({ status: "CANCELADA" }).eq("id", id);
+    const { error } = await supabase
+      .from("inscricoes_individuais")
+      .update({ status: "CANCELADA" })
+      .eq("id", id);
     if (error) return setMsg("Erro ao cancelar: " + error.message);
 
     setMsg("Cancelado ✅");
@@ -653,7 +673,10 @@ export default function GestorInscricoesUnificadoPage() {
 
   async function carregarMembros(equipeIdNum: number) {
     setMembros([]);
-    const { data, error } = await supabase.from("equipe_membros").select("id, atleta_id").eq("equipe_id", equipeIdNum);
+    const { data, error } = await supabase
+      .from("equipe_membros")
+      .select("id, atleta_id")
+      .eq("equipe_id", equipeIdNum);
     if (error) return setMsg("Erro membros: " + error.message);
     setMembros((data ?? []) as any);
   }
@@ -732,7 +755,11 @@ export default function GestorInscricoesUnificadoPage() {
     const eqid = Number(equipeId);
     if (!eqid) return;
 
-    const { error } = await supabase.from("equipe_membros").delete().eq("equipe_id", eqid).eq("atleta_id", atletaId);
+    const { error } = await supabase
+      .from("equipe_membros")
+      .delete()
+      .eq("equipe_id", eqid)
+      .eq("atleta_id", atletaId);
     if (error) return setMsg("Erro ao remover: " + error.message);
 
     setMsg("Atleta removido ✅");
@@ -791,27 +818,48 @@ export default function GestorInscricoesUnificadoPage() {
     setMembros([]);
   }
 
-  // =================== NOVO: Comissão Técnica (funções) ===================
+  // =================== Comissão Técnica (funções) ===================
   async function carregarTecnicosTop10() {
     if (!perfil?.escola_id) return;
     setCarregandoTec(true);
 
     const { data, error } = await supabase
-      .from("comissao_tecnica")
+      .from("equipe_tecnica")
       .select("id, escola_id, nome, cpf, funcao, ativo")
       .eq("escola_id", perfil.escola_id)
       .eq("ativo", true)
       .order("nome", { ascending: true })
       .limit(10);
 
-    setCarregandoTec(false);
-    if (error) return setMsg("Erro comissão técnica: " + error.message);
+    if (error) {
+      setCarregandoTec(false);
+      return setMsg("Erro comissão técnica: " + error.message);
+    }
 
-    const rows = (data ?? []) as any as Tecnico[];
+    if ((data ?? []).length > 0) {
+      setCarregandoTec(false);
+      const rows = (data ?? []) as any as Tecnico[];
+      setTecnicos(rows);
+      setTecnicoSelId(rows[0]?.id ? String(rows[0].id) : "");
+      return;
+    }
+
+    const { data: fallbackData, error: fallbackError } = await supabase
+      .from("comissao_tecnica")
+      .select("id, escola_id, nome, cpf, funcao, ativo")
+      .eq("escola_id", perfil.escola_id)
+      .order("nome", { ascending: true })
+      .limit(10);
+
+    setCarregandoTec(false);
+    if (fallbackError) return setMsg("Erro comissão técnica: " + fallbackError.message);
+
+    const rows = (fallbackData ?? []) as any as Tecnico[];
     setTecnicos(rows);
     setTecnicoSelId(rows[0]?.id ? String(rows[0].id) : "");
   }
 
+  // ✅ ATUALIZADO: fallback correto agora é comissao_tecnica
   async function buscarTecnicos(nome: string, cpf: string) {
     if (!perfil?.escola_id) return;
 
@@ -826,8 +874,9 @@ export default function GestorInscricoesUnificadoPage() {
 
     setCarregandoTec(true);
 
+    // 1) principal: equipe_tecnica
     let q = supabase
-      .from("comissao_tecnica")
+      .from("equipe_tecnica")
       .select("id, escola_id, nome, cpf, funcao, ativo")
       .eq("escola_id", perfil.escola_id)
       .eq("ativo", true);
@@ -837,10 +886,36 @@ export default function GestorInscricoesUnificadoPage() {
 
     const { data, error } = await q.order("nome", { ascending: true }).limit(50);
 
-    setCarregandoTec(false);
-    if (error) return setMsg("Erro ao buscar comissão técnica: " + error.message);
+    if (error) {
+      setCarregandoTec(false);
+      return setMsg("Erro ao buscar comissão técnica: " + error.message);
+    }
 
-    const rows = (data ?? []) as any as Tecnico[];
+    if ((data ?? []).length > 0) {
+      setCarregandoTec(false);
+      const rows = (data ?? []) as any as Tecnico[];
+      setTecnicos(rows);
+      setTecnicoSelId(rows[0]?.id ? String(rows[0].id) : "");
+      return;
+    }
+
+    // 2) fallback: comissao_tecnica
+    let fallbackQuery = supabase
+      .from("comissao_tecnica")
+      .select("id, escola_id, nome, cpf, funcao, ativo")
+      .eq("escola_id", perfil.escola_id);
+
+    if (nomeTrim) fallbackQuery = fallbackQuery.ilike("nome", `%${nomeTrim}%`);
+    if (cpfLimpo) fallbackQuery = fallbackQuery.ilike("cpf", `%${cpfLimpo}%`);
+
+    const { data: fallbackData, error: fallbackError } = await fallbackQuery
+      .order("nome", { ascending: true })
+      .limit(50);
+
+    setCarregandoTec(false);
+    if (fallbackError) return setMsg("Erro ao buscar comissão técnica: " + fallbackError.message);
+
+    const rows = (fallbackData ?? []) as any as Tecnico[];
     setTecnicos(rows);
     setTecnicoSelId(rows[0]?.id ? String(rows[0].id) : "");
   }
@@ -862,6 +937,7 @@ export default function GestorInscricoesUnificadoPage() {
     debouncedBuscarTec(qTecNome, qTecCpf);
   }, [qTecNome, qTecCpf, debouncedBuscarTec]);
 
+  // ✅ ATUALIZADO: listar somente ATIVO
   async function carregarTecnicosDoEvento(evId: number) {
     if (!perfil?.escola_id) return;
     setTecnicosEvento([]);
@@ -871,12 +947,12 @@ export default function GestorInscricoesUnificadoPage() {
       .select(
         `
         id, evento_id, comissao_id, escola_id, status,
-        comissao_tecnica:comissao_id ( id, nome, cpf, funcao )
+        equipe_tecnica:comissao_id ( id, nome, cpf, funcao )
       `
       )
       .eq("evento_id", evId)
       .eq("escola_id", perfil.escola_id)
-      .neq("status", "CANCELADO")
+      .eq("status", "ATIVO")
       .order("id", { ascending: false });
 
     if (error) return setMsg("Erro ao carregar comissão do evento: " + error.message);
@@ -887,15 +963,43 @@ export default function GestorInscricoesUnificadoPage() {
     setMsg("");
     if (!exigirEventoAberto()) return;
     if (!perfil?.escola_id) return setMsg("Perfil sem escola.");
+
     const evId = Number(eventoId);
     if (!evId) return setMsg("Selecione um evento.");
+
     const tecId = Number(tecnicoSelId);
     if (!tecId) return setMsg("Selecione um membro da comissão.");
 
-    // evita duplicar
-    const ja = tecnicosEvento.find((x) => Number(x.comissao_id) === tecId);
-    if (ja) return setMsg("Esse membro já está alocado neste evento.");
+    // 1) Se já está ATIVO no state, não duplica
+    const jaAtivo = tecnicosEvento.find((x) => Number(x.comissao_id) === tecId);
+    if (jaAtivo) return setMsg("Esse membro já está alocado neste evento.");
 
+    // 2) Se existe CANCELADO no banco, reativa
+    const { data: vincCancelado, error: eFind } = await supabase
+      .from("evento_comissao_tecnica")
+      .select("id, status")
+      .eq("evento_id", evId)
+      .eq("escola_id", perfil.escola_id)
+      .eq("comissao_id", tecId)
+      .eq("status", "CANCELADO")
+      .maybeSingle();
+
+    if (eFind) return setMsg("Erro ao verificar vínculo cancelado: " + eFind.message);
+
+    if (vincCancelado?.id) {
+      const { error: eUp } = await supabase
+        .from("evento_comissao_tecnica")
+        .update({ status: "ATIVO" })
+        .eq("id", vincCancelado.id);
+
+      if (eUp) return setMsg("Erro ao reativar: " + eUp.message);
+
+      setMsg("Comissão reativada no evento ✅");
+      await carregarTecnicosDoEvento(evId);
+      return;
+    }
+
+    // 3) senão insere
     const { error } = await supabase.from("evento_comissao_tecnica").insert({
       evento_id: evId,
       comissao_id: tecId,
@@ -909,24 +1013,37 @@ export default function GestorInscricoesUnificadoPage() {
     await carregarTecnicosDoEvento(evId);
   }
 
-  async function removerTecnicoDoEvento(vinculoId: number) {
+  // ✅ ATUALIZADO: remove do state na hora + confirma update (select)
+  async function removerTecnicoDoEvento(vinculoId: any) {
     setMsg("");
     if (!exigirEventoAberto()) return;
+
     const evId = Number(eventoId);
     if (!evId) return;
 
-    // aqui eu marco como CANCELADO (recomendado). Se você preferir deletar, troca por delete().
-    const { error } = await supabase
+    const vid = Number(vinculoId);
+
+    const { data, error } = await supabase
       .from("evento_comissao_tecnica")
       .update({ status: "CANCELADO" })
-      .eq("id", vinculoId);
+      .eq("id", vid)
+      .select("id, status");
 
     if (error) return setMsg("Erro ao remover comissão do evento: " + error.message);
 
+    if (!data || data.length === 0) {
+      setMsg("Não consegui remover (sem permissão/RLS). Verifique as policies do Supabase.");
+      return;
+    }
+
     setMsg("Removido do evento ✅");
+
+    // some imediatamente
+    setTecnicosEvento((prev) => prev.filter((x) => Number(x.id) !== vid));
+
+    // garante consistência com o banco
     await carregarTecnicosDoEvento(evId);
   }
-  // =======================================================================
 
   // ---------- effects ----------
   useEffect(() => {
@@ -943,7 +1060,7 @@ export default function GestorInscricoesUnificadoPage() {
       if (!evId) return;
 
       await carregarEventoModalidades(evId);
-      await carregarTecnicosDoEvento(evId); // ✅ NOVO
+      await carregarTecnicosDoEvento(evId);
     })();
   }, [eventoId]);
 
@@ -990,7 +1107,6 @@ export default function GestorInscricoesUnificadoPage() {
     () => eventoModalidades.filter((x) => x.modalidades?.tipo === "INDIVIDUAL"),
     [eventoModalidades]
   );
-
   const opcoesColetivas = useMemo(
     () => eventoModalidades.filter((x) => x.modalidades?.tipo === "COLETIVA"),
     [eventoModalidades]
@@ -1019,93 +1135,124 @@ export default function GestorInscricoesUnificadoPage() {
   }, [tecnicoSelId, tecnicos]);
 
   return (
-    <div style={{ padding: 16 }}>
-      <h2 style={{ fontWeight: 900, fontSize: 22 }}>Gestor • Inscrições</h2>
+  <div style={{ padding: 16, maxWidth: 1100, margin: "0 auto" }}>
+    <h2 style={{ fontWeight: 900, fontSize: 22, marginBottom: 6 }}>Gestor • Inscrições</h2>
+    <div style={{ fontSize: 13, opacity: 0.75, marginBottom: 14 }}>
+      Siga o passo a passo: Evento → (Individual/Coletiva) → Finalizar.
+    </div>
 
-      {msg && (
-        <div style={{ marginTop: 10, padding: 10, background: "#fff7e6", border: "1px solid #ffe58f", borderRadius: 10 }}>
-          {msg}
-        </div>
-      )}
-
-      {/* EVENTO */}
-      <div style={{ marginTop: 12, border: "1px solid #eee", borderRadius: 10, background: "#fff" }}>
-        <div style={{ padding: 10, fontWeight: 800 }}>Evento</div>
-        <div style={{ padding: 10 }}>
-          <select value={eventoId} onChange={(e) => setEventoId(e.target.value)} style={{ width: "100%", padding: 10 }}>
-            <option value="">Selecione...</option>
-            {eventos.map((ev) => (
-              <option key={ev.id} value={ev.id}>
-                {ev.nome} {ev.inscricoes_abertas === false ? "(Encerrado)" : ""}
-              </option>
-            ))}
-          </select>
-        </div>
+    {msg && (
+      <div
+        style={{
+          marginBottom: 12,
+          padding: 12,
+          background: "#fff7e6",
+          border: "1px solid #ffe58f",
+          borderRadius: 12,
+        }}
+      >
+        {msg}
       </div>
+    )}
 
-      {/* ✅ NOVO: Comissão Técnica (por evento) */}
-      <div style={{ marginTop: 12, border: "1px solid #eee", borderRadius: 10, background: "#fff" }}>
-        <div style={{ padding: 10, fontWeight: 900 }}>Comissão Técnica (por evento)</div>
+    {/* EVENTO */}
+    <div style={{ border: "1px solid #eee", borderRadius: 12, background: "#fff", overflow: "hidden" }}>
+      <div style={{ padding: 12, fontWeight: 900, borderBottom: "1px solid #eee" }}>1) Selecione o evento</div>
+      <div style={{ padding: 12 }}>
+        <select
+          value={eventoId}
+          onChange={(e) => setEventoId(e.target.value)}
+          style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid #ddd" }}
+        >
+          <option value="">Selecione...</option>
+          {eventos.map((ev) => (
+            <option key={ev.id} value={ev.id}>
+              {ev.nome} {ev.inscricoes_abertas === false ? "(Encerrado)" : ""}
+            </option>
+          ))}
+        </select>
 
-        {!eventoId && <div style={{ padding: 10, opacity: 0.8 }}>Selecione um evento para alocar a comissão técnica.</div>}
+        {eventoId && bloqueado && (
+          <div style={{ marginTop: 10, padding: 10, borderRadius: 10, background: "#fff1f0", border: "1px solid #ffccc7" }}>
+            Inscrições encerradas para este evento.
+          </div>
+        )}
+      </div>
+    </div>
 
-        {!!eventoId && (
-          <div style={{ padding: 10, display: "grid", gap: 10 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <div>
-                <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 4 }}>Nome</div>
-                <input
-                  placeholder="Pesquisar..."
-                  value={qTecNome}
-                  onChange={(e) => setQTecNome(e.target.value)}
-                  style={{ width: "100%", padding: 10, borderRadius: 8, border: "1px solid #ccc" }}
-                />
-              </div>
+    {/* BLOCO: COMISSÃO TÉCNICA (COLAPSÁVEL) */}
+    <details style={{ marginTop: 12, border: "1px solid #eee", borderRadius: 12, background: "#fff", overflow: "hidden" }}>
+      <summary style={{ padding: 12, fontWeight: 900, cursor: "pointer" }}>
+        Comissão Técnica (por evento) — clique para abrir/fechar
+      </summary>
 
-              <div>
-                <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 4 }}>CPF</div>
-                <input
-                  placeholder="Somente números"
-                  value={qTecCpf}
-                  onChange={(e) => setQTecCpf(onlyDigits(e.target.value))}
-                  style={{ width: "100%", padding: 10, borderRadius: 8, border: "1px solid #ccc" }}
-                />
-              </div>
+      {!eventoId && <div style={{ padding: 12, opacity: 0.8 }}>Selecione um evento para alocar a comissão técnica.</div>}
+
+      {!!eventoId && (
+        <div style={{ padding: 12, display: "grid", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>Nome</div>
+              <input
+                placeholder="Pesquisar..."
+                value={qTecNome}
+                onChange={(e) => setQTecNome(e.target.value)}
+                style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid #ddd" }}
+              />
             </div>
 
-            <select
-              size={6}
-              value={tecnicoSelId}
-              onChange={(e) => setTecnicoSelId(e.target.value)}
-              style={{ width: "100%", padding: 10, borderRadius: 8, border: "1px solid #ccc" }}
-            >
-              {carregandoTec && <option>Carregando...</option>}
-              {!carregandoTec && tecnicos.length === 0 && <option>Nenhum membro encontrado.</option>}
-              {!carregandoTec &&
-                tecnicos.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.nome} {t.funcao ? `— ${t.funcao}` : ""} {t.cpf ? `— CPF: ${t.cpf}` : ""}
-                  </option>
-                ))}
-            </select>
+            <div>
+              <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>CPF</div>
+              <input
+                placeholder="Somente números"
+                value={qTecCpf}
+                onChange={(e) => setQTecCpf(onlyDigits(e.target.value))}
+                style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid #ddd" }}
+              />
+            </div>
+          </div>
 
-            <button
-              onClick={adicionarTecnicoNoEvento}
-              disabled={!tecnicoSelId || bloqueado}
-              style={{
-                padding: 10,
-                borderRadius: 8,
-                cursor: !tecnicoSelId || bloqueado ? "not-allowed" : "pointer",
-                opacity: !tecnicoSelId || bloqueado ? 0.6 : 1,
-              }}
-              title={bloqueado ? "Inscrições encerradas" : ""}
-            >
-              Alocar no evento
-            </button>
+          <div style={{ border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
+            <div style={{ padding: 10, fontWeight: 800, borderBottom: "1px solid #eee" }}>Selecionar membro</div>
+            <div style={{ padding: 10 }}>
+              <select
+                size={6}
+                value={tecnicoSelId}
+                onChange={(e) => setTecnicoSelId(e.target.value)}
+                style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid #ddd" }}
+              >
+                {carregandoTec && <option>Carregando...</option>}
+                {!carregandoTec && tecnicos.length === 0 && <option>Nenhum membro encontrado.</option>}
+                {!carregandoTec &&
+                  tecnicos.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.nome} {t.funcao ? `— ${t.funcao}` : ""} {t.cpf ? `— CPF: ${t.cpf}` : ""}
+                    </option>
+                  ))}
+              </select>
 
-            <div style={{ padding: 10, border: "1px solid #eee", borderRadius: 10 }}>
-              <div style={{ fontWeight: 900, marginBottom: 6 }}>Alocados neste evento</div>
+              <button
+                onClick={adicionarTecnicoNoEvento}
+                disabled={!tecnicoSelId || bloqueado}
+                style={{
+                  marginTop: 10,
+                  width: "100%",
+                  padding: 12,
+                  borderRadius: 10,
+                  border: "1px solid #ddd",
+                  cursor: !tecnicoSelId || bloqueado ? "not-allowed" : "pointer",
+                  opacity: !tecnicoSelId || bloqueado ? 0.6 : 1,
+                }}
+                title={bloqueado ? "Inscrições encerradas" : ""}
+              >
+                Alocar no evento
+              </button>
+            </div>
+          </div>
 
+          <div style={{ border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
+            <div style={{ padding: 10, fontWeight: 900, borderBottom: "1px solid #eee" }}>Alocados neste evento</div>
+            <div style={{ padding: 10 }}>
               {tecnicosEvento.length === 0 && <div style={{ padding: 6, opacity: 0.8 }}>Nenhum alocado ainda.</div>}
 
               {tecnicosEvento.map((v) => (
@@ -1122,381 +1269,449 @@ export default function GestorInscricoesUnificadoPage() {
                 >
                   <div>
                     <div style={{ fontWeight: 800 }}>
-                      {v.comissao_tecnica?.nome ?? `Comissão #${v.comissao_id}`}
-                      {v.comissao_tecnica?.funcao ? ` — ${v.comissao_tecnica.funcao}` : ""}
+                      {v.equipe_tecnica?.nome ?? `Comissão #${v.comissao_id}`}
+                      {v.equipe_tecnica?.funcao ? ` — ${v.equipe_tecnica.funcao}` : ""}
                     </div>
-                    <div style={{ fontSize: 12, opacity: 0.8 }}>
-                      {v.comissao_tecnica?.cpf ? `CPF: ${v.comissao_tecnica.cpf}` : ""}
-                    </div>
+                    <div style={{ fontSize: 12, opacity: 0.8 }}>{v.equipe_tecnica?.cpf ? `CPF: ${v.equipe_tecnica.cpf}` : ""}</div>
                   </div>
 
                   <button
                     onClick={() => removerTecnicoDoEvento(v.id)}
                     disabled={bloqueado}
-                    style={{ padding: 10, borderRadius: 8, cursor: bloqueado ? "not-allowed" : "pointer", opacity: bloqueado ? 0.6 : 1 }}
+                    style={{
+                      padding: 10,
+                      borderRadius: 10,
+                      border: "1px solid #ddd",
+                      cursor: bloqueado ? "not-allowed" : "pointer",
+                      opacity: bloqueado ? 0.6 : 1,
+                    }}
                   >
                     Remover
                   </button>
                 </div>
               ))}
             </div>
-
-            {tecnicoSelecionado && (
-              <div style={{ fontSize: 12, opacity: 0.75 }}>
-                Selecionado: <b>{tecnicoSelecionado.nome}</b> {tecnicoSelecionado.funcao ? `(${tecnicoSelecionado.funcao})` : ""}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        {/* INDIVIDUAIS */}
-        <div style={{ border: "1px solid #eee", borderRadius: 10, background: "#fff" }}>
-          <div style={{ padding: 10, fontWeight: 900 }}>Individuais / Provas</div>
-
-          <div style={{ padding: 10, display: "grid", gap: 10 }}>
-            <div>
-              <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 4 }}>Modalidade individual (categoria/naipe)</div>
-              <select value={emIdInd} onChange={(e) => setEmIdInd(e.target.value)} style={{ width: "100%", padding: 10 }} disabled={!eventoId}>
-                <option value="">Selecione...</option>
-                {opcoesIndividuais.map((em) => (
-                  <option key={em.id} value={em.id}>
-                    {emLabel(em)}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {provasAtivas.length > 0 && (
-              <div>
-                <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 4 }}>Prova</div>
-                <select value={eventoProvaId} onChange={(e) => setEventoProvaId(e.target.value)} style={{ width: "100%", padding: 10 }}>
-                  <option value="">Selecione...</option>
-                  {provasAtivas.map((ep) => (
-                    <option key={ep.id} value={ep.id}>
-                      {ep.provas?.nome ?? `Prova ${ep.prova_id}`} • max {ep.max_por_escola}
-                    </option>
-                  ))}
-                </select>
-
-                {eventoProvaId && (
-                  <div style={{ marginTop: 8, fontSize: 13, opacity: 0.85 }}>
-                    Vagas usadas: <b>{vagasUsadas}</b>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div style={{ fontSize: 13, opacity: 0.85 }}>
-              Inscritos ativos (sua escola): <b>{inscritosAtivosInd}</b>
-            </div>
-          </div>
-
-          {/* Buscar atletas + Inscrever */}
-          <div style={{ borderTop: "1px solid #eee", padding: 10 }}>
-            <div style={{ fontWeight: 800, marginBottom: 8 }}>Buscar atletas</div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <div>
-                <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 4 }}>Nome</div>
-                <input
-                  placeholder="Pesquise..."
-                  value={qNome}
-                  onChange={(e) => setQNome(e.target.value)}
-                  style={{ width: "100%", padding: 10, borderRadius: 8, border: "1px solid #ccc" }}
-                />
-              </div>
-
-              <div>
-                <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 4 }}>CPF</div>
-                <input
-                  placeholder="Informe o CPF"
-                  value={qCpf}
-                  onChange={(e) => setQCpf(onlyDigits(e.target.value))}
-                  style={{ width: "100%", padding: 10, borderRadius: 8, border: "1px solid #ccc" }}
-                />
-              </div>
-            </div>
-
-            <select
-              size={10}
-              value={atletaSelId}
-              onChange={(e) => setAtletaSelId(e.target.value)}
-              style={{ width: "100%", padding: 10, borderRadius: 8, border: "1px solid #ccc", marginTop: 10 }}
-            >
-              {carregandoAtletas && <option>Carregando...</option>}
-              {!carregandoAtletas && atletas.length === 0 && <option>Nenhum atleta encontrado.</option>}
-              {!carregandoAtletas &&
-                atletas.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.nome} — {a.sexo === "M" ? "Masc" : "Fem"} — Docs: {a.doc_status ?? "PENDENTE"}
-                  </option>
-                ))}
-            </select>
-
-            <button
-              onClick={inscreverIndividualOuProva}
-              disabled={!podeInscreverIndividual}
-              style={{
-                marginTop: 10,
-                width: "100%",
-                padding: 10,
-                borderRadius: 8,
-                cursor: podeInscreverIndividual ? "pointer" : "not-allowed",
-                opacity: podeInscreverIndividual ? 1 : 0.6,
-              }}
-            >
-              Inscrever (individual/prova)
-            </button>
-
-            <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>
-              Mostrando <b>{Math.min(atletas.length, 50)}</b> resultados.
-            </div>
-          </div>
-
-          {/* Lista inscritos / cancelar */}
-          <div style={{ borderTop: "1px solid #eee", padding: 10 }}>
-            <div style={{ fontWeight: 900, marginBottom: 6 }}>
-              Inscritos (sua escola) {eventoProvaId ? "• por prova" : "• por modalidade"}
-            </div>
-
-            {eventoProvaId ? (
-              <>
-                {inscProva.length === 0 && <div style={{ padding: 8 }}>Nenhuma inscrição.</div>}
-                {inscProva.map((i) => {
-                  const atleta = atletas.find((a) => a.id === i.atleta_id);
-                  return (
-                    <div
-                      key={i.id}
-                      style={{
-                        padding: 10,
-                        borderTop: "1px solid #eee",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        gap: 10,
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontWeight: 700 }}>{atleta?.nome ?? `Atleta #${i.atleta_id}`}</div>
-                        <div style={{ fontSize: 12, opacity: 0.75 }}>
-                          Status: <b>{i.status}</b>
-                        </div>
-                      </div>
-                      <button onClick={() => cancelarInscricaoIndividualOuProva(i.id, "PROVA")} disabled={bloqueado} style={{ padding: 10, borderRadius: 8, cursor: "pointer" }}>
-                        Cancelar
-                      </button>
-                    </div>
-                  );
-                })}
-              </>
-            ) : (
-              <>
-                {inscInd.length === 0 && <div style={{ padding: 8 }}>Nenhuma inscrição.</div>}
-                {inscInd.map((i) => {
-                  const atleta = atletas.find((a) => a.id === i.atleta_id);
-                  return (
-                    <div
-                      key={i.id}
-                      style={{
-                        padding: 10,
-                        borderTop: "1px solid #eee",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        gap: 10,
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontWeight: 700 }}>{atleta?.nome ?? `Atleta #${i.atleta_id}`}</div>
-                        <div style={{ fontSize: 12, opacity: 0.75 }}>
-                          Status: <b>{i.status}</b>
-                        </div>
-                      </div>
-                      <button onClick={() => cancelarInscricaoIndividualOuProva(i.id, "INDIVIDUAL")} disabled={bloqueado} style={{ padding: 10, borderRadius: 8, cursor: "pointer" }}>
-                        Cancelar
-                      </button>
-                    </div>
-                  );
-                })}
-              </>
-            )}
           </div>
         </div>
+      )}
+    </details>
 
-        {/* COLETIVAS */}
-        <div style={{ border: "1px solid #eee", borderRadius: 10, background: "#fff" }}>
-          <div style={{ padding: 10, fontWeight: 900 }}>Coletivas / Equipes</div>
+    {/* ABAS: INDIVIDUAL / COLETIVA */}
+    <div style={{ marginTop: 12, border: "1px solid #eee", borderRadius: 12, background: "#fff", overflow: "hidden" }}>
+      <div style={{ padding: 12, fontWeight: 900, borderBottom: "1px solid #eee" }}>2) Escolha o tipo de inscrição</div>
 
-          <div style={{ padding: 10, display: "grid", gap: 10 }}>
-            <div>
-              <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 4 }}>Modalidade coletiva (categoria/naipe)</div>
-              <select value={emIdCol} onChange={(e) => setEmIdCol(e.target.value)} style={{ width: "100%", padding: 10 }} disabled={!eventoId}>
-                <option value="">Selecione...</option>
-                {opcoesColetivas.map((em) => (
-                  <option key={em.id} value={em.id}>
-                    {emLabel(em)} • equipe {em.min_por_equipe ?? "—"}–{em.max_por_equipe ?? "—"}
-                  </option>
-                ))}
-              </select>
+      <div style={{ padding: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
+        {/* Aba simples via estado local (crie um state tab) */}
+        {/* IMPORTANTE: antes do return, crie:
+            const [tab, setTab] = useState<"IND" | "COL">("IND");
+        */}
+        <button
+          onClick={() => setTab("IND")}
+          style={{
+            padding: "10px 14px",
+            borderRadius: 999,
+            border: "1px solid #ddd",
+            cursor: "pointer",
+            fontWeight: 800,
+            opacity: tab === "IND" ? 1 : 0.6,
+          }}
+        >
+          Individual / Provas
+        </button>
+        <button
+          onClick={() => setTab("COL")}
+          style={{
+            padding: "10px 14px",
+            borderRadius: 999,
+            border: "1px solid #ddd",
+            cursor: "pointer",
+            fontWeight: 800,
+            opacity: tab === "COL" ? 1 : 0.6,
+          }}
+        >
+          Coletiva / Equipes
+        </button>
+      </div>
+
+      <div style={{ padding: 12, borderTop: "1px solid #eee" }}>
+        {!eventoId && <div style={{ opacity: 0.8 }}>Selecione um evento acima para liberar as opções.</div>}
+
+        {!!eventoId && tab === "IND" && (
+          <div style={{ display: "grid", gap: 12 }}>
+            {/* PASSO 1: Modalidade + Prova */}
+            <div style={{ border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
+              <div style={{ padding: 10, fontWeight: 900, borderBottom: "1px solid #eee" }}>Passo 1) Modalidade (Individual)</div>
+              <div style={{ padding: 10, display: "grid", gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>Modalidade</div>
+                  <select
+                    value={emIdInd}
+                    onChange={(e) => setEmIdInd(e.target.value)}
+                    style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid #ddd" }}
+                    disabled={!eventoId}
+                  >
+                    <option value="">Selecione...</option>
+                    {opcoesIndividuais.map((em) => (
+                      <option key={em.id} value={em.id}>
+                        {emLabel(em)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {provasAtivas.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>Prova</div>
+                    <select
+                      value={eventoProvaId}
+                      onChange={(e) => setEventoProvaId(e.target.value)}
+                      style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid #ddd" }}
+                    >
+                      <option value="">Selecione...</option>
+                      {provasAtivas.map((ep) => (
+                        <option key={ep.id} value={ep.id}>
+                          {ep.provas?.nome ?? `Prova ${ep.prova_id}`} • max {ep.max_por_escola}
+                        </option>
+                      ))}
+                    </select>
+
+                    {eventoProvaId && (
+                      <div style={{ marginTop: 8, fontSize: 13, opacity: 0.85 }}>
+                        Vagas usadas: <b>{vagasUsadas}</b>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div style={{ fontSize: 13, opacity: 0.85 }}>
+                  Inscritos ativos (sua escola): <b>{inscritosAtivosInd}</b>
+                </div>
+              </div>
             </div>
 
-            {opcaoColetivaSelecionada && (
-              <div style={{ padding: 12, border: "1px solid #eee", borderRadius: 10 }}>
-                <div style={{ fontWeight: 800 }}>{opcaoColetivaSelecionada.modalidades?.nome}</div>
-                <div style={{ fontSize: 13, opacity: 0.9 }}>
-                  Tamanho permitido: {minEquipe} até {maxEquipe === 999999 ? "∞" : maxEquipe}
-                </div>
-              </div>
-            )}
-
-            <button onClick={criarEquipe} disabled={!opcaoColetivaSelecionada || bloqueado} style={{ padding: 10, borderRadius: 8, cursor: "pointer" }}>
-              Criar equipe
-            </button>
-
-            <select value={equipeId} onChange={(e) => setEquipeId(e.target.value)} style={{ padding: 10, border: "1px solid #ccc", borderRadius: 8 }} disabled={equipes.length === 0}>
-              <option value="">Selecione a equipe...</option>
-              {equipes.map((eq) => (
-                <option key={eq.id} value={eq.id}>
-                  #{eq.id} • {eq.nome} • {eq.status}
-                </option>
-              ))}
-            </select>
-
-            {equipeId && (
-              <div style={{ display: "flex", gap: 10 }}>
-                <button onClick={concluirEquipe} disabled={bloqueado} style={{ flex: 1, padding: 10, borderRadius: 8, cursor: "pointer" }}>
-                  Concluir equipe
-                </button>
-
-                <button onClick={() => cancelarEquipe(Number(equipeId))} disabled={bloqueado} style={{ flex: 1, padding: 10, borderRadius: 8, cursor: "pointer" }}>
-                  Cancelar equipe
-                </button>
-              </div>
-            )}
-
-            {equipeId && (
-              <button onClick={() => excluirEquipe(Number(equipeId))} disabled={bloqueado} style={{ padding: 10, borderRadius: 8, cursor: "pointer" }}>
-                Excluir equipe (apagar)
-              </button>
-            )}
-          </div>
-
-          {/* buscar atletas coletiva */}
-          <div style={{ borderTop: "1px solid #eee", padding: 10 }}>
-            <div style={{ fontWeight: 800, marginBottom: 8 }}>Buscar atletas elegíveis (coletiva)</div>
-
-            {!opcaoColetivaSelecionada && <div style={{ padding: 8 }}>Selecione a modalidade coletiva para listar atletas elegíveis.</div>}
-
-            {opcaoColetivaSelecionada && (
-              <>
+            {/* PASSO 2: Buscar atleta */}
+            <div style={{ border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
+              <div style={{ padding: 10, fontWeight: 900, borderBottom: "1px solid #eee" }}>Passo 2) Escolha o atleta</div>
+              <div style={{ padding: 10, display: "grid", gap: 10 }}>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div>
-                    <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 4 }}>Nome</div>
-                    <input placeholder="Pesquise..." value={qNomeCol} onChange={(e) => setQNomeCol(e.target.value)} style={{ width: "100%", padding: 10, borderRadius: 8, border: "1px solid #ccc" }} />
+                    <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>Nome</div>
+                    <input
+                      placeholder="Pesquise..."
+                      value={qNome}
+                      onChange={(e) => setQNome(e.target.value)}
+                      style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid #ddd" }}
+                    />
                   </div>
 
                   <div>
-                    <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 4 }}>CPF</div>
-                    <input placeholder="Informe o CPF" value={qCpfCol} onChange={(e) => setQCpfCol(onlyDigits(e.target.value))} style={{ width: "100%", padding: 10, borderRadius: 8, border: "1px solid #ccc" }} />
+                    <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>CPF</div>
+                    <input
+                      placeholder="Informe o CPF"
+                      value={qCpf}
+                      onChange={(e) => setQCpf(onlyDigits(e.target.value))}
+                      style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid #ddd" }}
+                    />
                   </div>
                 </div>
 
-                <select size={10} value={atletaSelColId} onChange={(e) => setAtletaSelColId(e.target.value)} style={{ width: "100%", padding: 10, borderRadius: 8, border: "1px solid #ccc", marginTop: 10 }}>
-                  {carregandoCol && <option>Carregando...</option>}
-                  {!carregandoCol && atletasCol.length === 0 && <option>Nenhum atleta elegível encontrado.</option>}
-                  {!carregandoCol &&
-                    atletasCol.map((a) => (
+                <select
+                  size={10}
+                  value={atletaSelId}
+                  onChange={(e) => setAtletaSelId(e.target.value)}
+                  style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid #ddd" }}
+                >
+                  {carregandoAtletas && <option>Carregando...</option>}
+                  {!carregandoAtletas && atletas.length === 0 && <option>Nenhum atleta encontrado.</option>}
+                  {!carregandoAtletas &&
+                    atletas.map((a) => (
                       <option key={a.id} value={a.id}>
-                        {a.nome} — {a.sexo === "M" ? "Masc" : "Fem"} — {calcCategoria(a.data_nascimento)} — Docs: {a.doc_status}
+                        {a.nome} — {a.sexo === "M" ? "Masc" : "Fem"} — Docs: {a.doc_status ?? "PENDENTE"}
                       </option>
                     ))}
                 </select>
 
                 <button
-                  onClick={adicionarMembroSelecionado}
-                  disabled={!equipeId || !atletaSelColId || bloqueado}
+                  onClick={inscreverIndividualOuProva}
+                  disabled={!podeInscreverIndividual}
                   style={{
-                    marginTop: 10,
                     width: "100%",
-                    padding: 10,
-                    borderRadius: 8,
-                    cursor: !equipeId || !atletaSelColId || bloqueado ? "not-allowed" : "pointer",
-                    opacity: !equipeId || !atletaSelColId || bloqueado ? 0.6 : 1,
+                    padding: 12,
+                    borderRadius: 10,
+                    border: "1px solid #ddd",
+                    cursor: podeInscreverIndividual ? "pointer" : "not-allowed",
+                    opacity: podeInscreverIndividual ? 1 : 0.6,
+                    fontWeight: 900,
                   }}
                 >
-                  Adicionar selecionado na equipe
+                  ✅ Confirmar inscrição (individual/prova)
+                </button>
+              </div>
+            </div>
+
+            {/* PASSO 3: Inscritos */}
+            <div style={{ border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
+              <div style={{ padding: 10, fontWeight: 900, borderBottom: "1px solid #eee" }}>
+                Passo 3) Inscritos (sua escola) {eventoProvaId ? "• por prova" : "• por modalidade"}
+              </div>
+
+              <div style={{ padding: 10 }}>
+                {eventoProvaId ? (
+                  <>
+                    {inscProva.length === 0 && <div style={{ padding: 8 }}>Nenhuma inscrição.</div>}
+                    {inscProva.map((i) => {
+                      const atleta = atletas.find((a) => a.id === i.atleta_id);
+                      return (
+                        <div
+                          key={i.id}
+                          style={{
+                            padding: 10,
+                            borderTop: "1px solid #eee",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: 10,
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontWeight: 800 }}>{atleta?.nome ?? `Atleta #${i.atleta_id}`}</div>
+                            <div style={{ fontSize: 12, opacity: 0.75 }}>
+                              Status: <b>{i.status}</b>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => cancelarInscricaoIndividualOuProva(i.id, "PROVA")}
+                            disabled={bloqueado}
+                            style={{ padding: 10, borderRadius: 10, border: "1px solid #ddd" }}
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </>
+                ) : (
+                  <>
+                    {inscInd.length === 0 && <div style={{ padding: 8 }}>Nenhuma inscrição.</div>}
+                    {inscInd.map((i) => {
+                      const atleta = atletas.find((a) => a.id === i.atleta_id);
+                      return (
+                        <div
+                          key={i.id}
+                          style={{
+                            padding: 10,
+                            borderTop: "1px solid #eee",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: 10,
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontWeight: 800 }}>{atleta?.nome ?? `Atleta #${i.atleta_id}`}</div>
+                            <div style={{ fontSize: 12, opacity: 0.75 }}>
+                              Status: <b>{i.status}</b>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => cancelarInscricaoIndividualOuProva(i.id, "INDIVIDUAL")}
+                            disabled={bloqueado}
+                            style={{ padding: 10, borderRadius: 10, border: "1px solid #ddd" }}
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!!eventoId && tab === "COL" && (
+          <div style={{ display: "grid", gap: 12 }}>
+            {/* COLETIVA: Mantém seus componentes, mas em passos */}
+            <div style={{ border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
+              <div style={{ padding: 10, fontWeight: 900, borderBottom: "1px solid #eee" }}>Passo 1) Modalidade (Coletiva)</div>
+              <div style={{ padding: 10, display: "grid", gap: 10 }}>
+                <select
+                  value={emIdCol}
+                  onChange={(e) => setEmIdCol(e.target.value)}
+                  style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid #ddd" }}
+                  disabled={!eventoId}
+                >
+                  <option value="">Selecione...</option>
+                  {opcoesColetivas.map((em) => (
+                    <option key={em.id} value={em.id}>
+                      {emLabel(em)} • equipe {em.min_por_equipe ?? "—"}–{em.max_por_equipe ?? "—"}
+                    </option>
+                  ))}
+                </select>
+
+                {opcaoColetivaSelecionada && (
+                  <div style={{ padding: 12, border: "1px solid #eee", borderRadius: 12 }}>
+                    <div style={{ fontWeight: 900 }}>{opcaoColetivaSelecionada.modalidades?.nome}</div>
+                    <div style={{ fontSize: 13, opacity: 0.9 }}>
+                      Tamanho permitido: <b>{minEquipe}</b> até <b>{maxEquipe === 999999 ? "∞" : maxEquipe}</b>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div style={{ border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
+              <div style={{ padding: 10, fontWeight: 900, borderBottom: "1px solid #eee" }}>Passo 2) Criar / Abrir equipe</div>
+              <div style={{ padding: 10, display: "grid", gap: 10 }}>
+                <button
+                  onClick={criarEquipe}
+                  disabled={!opcaoColetivaSelecionada || bloqueado}
+                  style={{ padding: 12, borderRadius: 10, border: "1px solid #ddd", fontWeight: 900, cursor: "pointer" }}
+                >
+                  ➕ Criar equipe
                 </button>
 
-                <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>
-                  Mostrando <b>{Math.min(atletasCol.length, 50)}</b> resultados (top 10 no início).
-                </div>
-              </>
-            )}
-          </div>
+                <select
+                  value={equipeId}
+                  onChange={(e) => setEquipeId(e.target.value)}
+                  style={{ padding: 12, border: "1px solid #ddd", borderRadius: 10 }}
+                  disabled={equipes.length === 0}
+                >
+                  <option value="">Selecione a equipe...</option>
+                  {equipes.map((eq) => (
+                    <option key={eq.id} value={eq.id}>
+                      #{eq.id} • {eq.nome} • {eq.status}
+                    </option>
+                  ))}
+                </select>
 
-          {/* membros */}
-          <div style={{ borderTop: "1px solid #eee", padding: 10 }}>
-            <div style={{ fontWeight: 900, marginBottom: 6 }}>Membros da equipe</div>
-            {!equipeId && <div style={{ padding: 8 }}>Selecione/crie uma equipe.</div>}
-
-            {equipeId &&
-              membros.map((m) => {
-                const atleta = atletasCol.find((a) => a.id === m.atleta_id) || atletas.find((a) => a.id === m.atleta_id);
-                return (
-                  <div key={m.id} style={{ padding: 10, borderTop: "1px solid #eee", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-                    <div>
-                      <div style={{ fontWeight: 700 }}>{atleta?.nome ?? `Atleta #${m.atleta_id}`}</div>
-                      <div style={{ fontSize: 12, opacity: 0.8 }}>{atleta ? `${atleta.sexo} • ${calcCategoria(atleta.data_nascimento)}` : ""}</div>
-                    </div>
-                    <button onClick={() => removerMembro(m.atleta_id)} disabled={bloqueado} style={{ padding: 8, borderRadius: 8 }}>
-                      Remover
+                {equipeId && (
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    <button onClick={concluirEquipe} disabled={bloqueado} style={{ flex: 1, padding: 12, borderRadius: 10, border: "1px solid #ddd" }}>
+                      ✅ Concluir equipe
+                    </button>
+                    <button onClick={() => cancelarEquipe(Number(equipeId))} disabled={bloqueado} style={{ flex: 1, padding: 12, borderRadius: 10, border: "1px solid #ddd" }}>
+                      🛑 Cancelar equipe
                     </button>
                   </div>
-                );
-              })}
+                )}
 
-            {equipeId && (
-              <div style={{ padding: 10, fontSize: 13, opacity: 0.9 }}>
-                Total: <b>{membros.length}</b> / <b>{maxEquipe === 999999 ? "∞" : maxEquipe}</b>
+                {equipeId && (
+                  <button onClick={() => excluirEquipe(Number(equipeId))} disabled={bloqueado} style={{ padding: 12, borderRadius: 10, border: "1px solid #ddd" }}>
+                    🗑️ Excluir equipe (apagar)
+                  </button>
+                )}
               </div>
-            )}
-          </div>
+            </div>
 
-          {/* lista equipes */}
-          <div style={{ borderTop: "1px solid #eee", padding: 10 }}>
-            <div style={{ fontWeight: 900, marginBottom: 6 }}>Equipes (sua escola) • ações</div>
+            <div style={{ border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
+              <div style={{ padding: 10, fontWeight: 900, borderBottom: "1px solid #eee" }}>Passo 3) Adicionar atletas elegíveis</div>
+              <div style={{ padding: 10, display: "grid", gap: 10 }}>
+                {!opcaoColetivaSelecionada && <div style={{ padding: 8 }}>Selecione a modalidade coletiva para listar atletas elegíveis.</div>}
 
-            {equipes.length === 0 && <div style={{ padding: 8 }}>Nenhuma equipe.</div>}
+                {opcaoColetivaSelecionada && (
+                  <>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                      <div>
+                        <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>Nome</div>
+                        <input
+                          placeholder="Pesquise..."
+                          value={qNomeCol}
+                          onChange={(e) => setQNomeCol(e.target.value)}
+                          style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid #ddd" }}
+                        />
+                      </div>
 
-            {equipes.map((eq) => (
-              <div key={eq.id} style={{ padding: 10, borderTop: "1px solid #eee", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-                <div>
-                  <div style={{ fontWeight: 800 }}>
-                    #{eq.id} • {eq.nome}
-                  </div>
-                  <div style={{ fontSize: 12, opacity: 0.8 }}>
-                    Status: <b>{eq.status}</b>
-                  </div>
-                </div>
+                      <div>
+                        <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>CPF</div>
+                        <input
+                          placeholder="Informe o CPF"
+                          value={qCpfCol}
+                          onChange={(e) => setQCpfCol(onlyDigits(e.target.value))}
+                          style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid #ddd" }}
+                        />
+                      </div>
+                    </div>
 
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={() => setEquipeId(String(eq.id))} style={{ padding: 8, borderRadius: 8 }}>
-                    Abrir
-                  </button>
-                  <button onClick={() => cancelarEquipe(eq.id)} disabled={bloqueado} style={{ padding: 8, borderRadius: 8 }}>
-                    Cancelar
-                  </button>
-                  <button onClick={() => excluirEquipe(eq.id)} disabled={bloqueado} style={{ padding: 8, borderRadius: 8 }}>
-                    Excluir
-                  </button>
-                </div>
+                    <select
+                      size={10}
+                      value={atletaSelColId}
+                      onChange={(e) => setAtletaSelColId(e.target.value)}
+                      style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid #ddd" }}
+                    >
+                      {carregandoCol && <option>Carregando...</option>}
+                      {!carregandoCol && atletasCol.length === 0 && <option>Nenhum atleta elegível encontrado.</option>}
+                      {!carregandoCol &&
+                        atletasCol.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.nome} — {a.sexo === "M" ? "Masc" : "Fem"} — {calcCategoria(a.data_nascimento)} — Docs: {a.doc_status}
+                          </option>
+                        ))}
+                    </select>
+
+                    <button
+                      onClick={adicionarMembroSelecionado}
+                      disabled={!equipeId || !atletaSelColId || bloqueado}
+                      style={{
+                        width: "100%",
+                        padding: 12,
+                        borderRadius: 10,
+                        border: "1px solid #ddd",
+                        cursor: !equipeId || !atletaSelColId || bloqueado ? "not-allowed" : "pointer",
+                        opacity: !equipeId || !atletaSelColId || bloqueado ? 0.6 : 1,
+                        fontWeight: 900,
+                      }}
+                    >
+                      ➕ Adicionar selecionado na equipe
+                    </button>
+                  </>
+                )}
               </div>
-            ))}
+            </div>
+
+            <div style={{ border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
+              <div style={{ padding: 10, fontWeight: 900, borderBottom: "1px solid #eee" }}>Membros da equipe</div>
+              <div style={{ padding: 10 }}>
+                {!equipeId && <div style={{ padding: 8 }}>Selecione/crie uma equipe.</div>}
+
+                {equipeId &&
+                  membros.map((m) => {
+                    const atleta = atletasCol.find((a) => a.id === m.atleta_id) || atletas.find((a) => a.id === m.atleta_id);
+                    return (
+                      <div
+                        key={m.id}
+                        style={{
+                          padding: 10,
+                          borderTop: "1px solid #eee",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          gap: 10,
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontWeight: 900 }}>{atleta?.nome ?? `Atleta #${m.atleta_id}`}</div>
+                          <div style={{ fontSize: 12, opacity: 0.8 }}>{atleta ? `${atleta.sexo} • ${calcCategoria(atleta.data_nascimento)}` : ""}</div>
+                        </div>
+                        <button onClick={() => removerMembro(m.atleta_id)} disabled={bloqueado} style={{ padding: 10, borderRadius: 10, border: "1px solid #ddd" }}>
+                          Remover
+                        </button>
+                      </div>
+                    );
+                  })}
+
+                {equipeId && (
+                  <div style={{ padding: 10, fontSize: 13, opacity: 0.9 }}>
+                    Total: <b>{membros.length}</b> / <b>{maxEquipe === 999999 ? "∞" : maxEquipe}</b>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
-  );
+  </div>
+);
 }

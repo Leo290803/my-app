@@ -494,23 +494,28 @@ export default function GestorSubstituicoesPage() {
   const podeEnviar = !!eventoId && !!equipeId && !!saidaId && !!entradaId && motivo.trim().length > 0;
 
   return (
-    <main style={{ padding: 24, maxWidth: 1100 }}>
-      <h1 style={{ fontSize: 24, fontWeight: 900 }}>Gestor • Solicitar Substituição</h1>
+  <main style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
+    <h1 style={{ fontSize: 24, fontWeight: 900, marginBottom: 6 }}>Gestor • Solicitar Substituição</h1>
+    <div style={{ fontSize: 13, opacity: 0.75, marginBottom: 14 }}>
+      Fluxo: <b>Evento</b> → <b>Equipe</b> → <b>Saída</b> → <b>Entrada</b> → <b>Motivo/Laudo</b>.
+    </div>
 
-      {msg && (
-        <div style={{ marginTop: 10, padding: 10, background: "#fff7e6", border: "1px solid #ffe58f", borderRadius: 10 }}>
-          {msg}
-        </div>
-      )}
+    {msg && (
+      <div style={{ marginBottom: 12, padding: 12, background: "#fff7e6", border: "1px solid #ffe58f", borderRadius: 12 }}>
+        {msg}
+      </div>
+    )}
 
-      {/* EVENTO */}
-      <div style={{ marginTop: 14, border: "1px solid #eee", borderRadius: 12, background: "#fff" }}>
-        <div style={{ padding: 12, fontWeight: 900 }}>Evento</div>
-        <div style={{ padding: 12, display: "grid", gap: 10, maxWidth: 720 }}>
+    {/* PASSO 1: EVENTO */}
+    <div style={{ border: "1px solid #eee", borderRadius: 12, background: "#fff", overflow: "hidden" }}>
+      <div style={{ padding: 12, fontWeight: 900, borderBottom: "1px solid #eee" }}>1) Selecione o evento</div>
+
+      <div style={{ padding: 12, display: "grid", gap: 10 }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
           <select
             value={eventoId}
             onChange={(e) => setEventoId(e.target.value)}
-            style={{ padding: 10, borderRadius: 10, border: "1px solid #ccc" }}
+            style={{ padding: 12, borderRadius: 10, border: "1px solid #ddd", minWidth: 320, flex: 1 }}
           >
             <option value="">Selecione o evento...</option>
             {eventos.map((ev) => (
@@ -525,42 +530,33 @@ export default function GestorSubstituicoesPage() {
               if (!perfil?.escola_id) return;
               carregarEventosDisponiveis(perfil.escola_id);
             }}
-            style={{ padding: 10, borderRadius: 10, cursor: "pointer", maxWidth: 220 }}
+            style={{ padding: 12, borderRadius: 10, border: "1px solid #ddd", cursor: "pointer", fontWeight: 800 }}
           >
             Atualizar lista
           </button>
-
-          {eventos.length === 0 && (
-            <div style={{ fontSize: 12, opacity: 0.75 }}>
-              Nenhum evento disponível. Verifique se existe <b>evento_modalidades.substituicoes_abertas = true</b> para alguma equipe da sua escola.
-            </div>
-          )}
         </div>
-      </div>
 
-      <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-        {/* ESQUERDA */}
-        <div style={{ border: "1px solid #eee", borderRadius: 12, background: "#fff" }}>
-          <div style={{ padding: 12, fontWeight: 900 }}>Configuração</div>
+        {eventos.length === 0 && (
+          <div style={{ fontSize: 12, opacity: 0.75 }}>
+            Nenhum evento disponível. Verifique se existe <b>evento_modalidades.substituicoes_abertas = true</b> para alguma equipe da sua escola.
+          </div>
+        )}
+      </div>
+    </div>
+
+    {/* PASSO 2+ : GRID */}
+    <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1.1fr 0.9fr", gap: 14 }}>
+      {/* COLUNA ESQUERDA: EQUIPE + SAÍDA */}
+      <div style={{ display: "grid", gap: 14 }}>
+        {/* PASSO 2: EQUIPE */}
+        <div style={{ border: "1px solid #eee", borderRadius: 12, background: "#fff", overflow: "hidden" }}>
+          <div style={{ padding: 12, fontWeight: 900, borderBottom: "1px solid #eee" }}>2) Selecione a equipe</div>
 
           <div style={{ padding: 12, display: "grid", gap: 10 }}>
             <select
-              value={eventoId}
-              onChange={(e) => setEventoId(e.target.value)}
-              style={{ padding: 10, borderRadius: 10, border: "1px solid #ccc" }}
-            >
-              <option value="">{eventoId ? "Evento selecionado" : "Selecione o evento primeiro..."}</option>
-              {eventos.map((ev) => (
-                <option key={ev.id} value={ev.id}>
-                  #{ev.id} • {ev.nome}
-                </option>
-              ))}
-            </select>
-
-            <select
               value={equipeId}
               onChange={(e) => setEquipeId(e.target.value)}
-              style={{ padding: 10, borderRadius: 10, border: "1px solid #ccc" }}
+              style={{ padding: 12, borderRadius: 10, border: "1px solid #ddd" }}
               disabled={!eventoId}
             >
               <option value="">{!eventoId ? "Selecione o evento primeiro..." : "Selecione a equipe..."}</option>
@@ -572,83 +568,97 @@ export default function GestorSubstituicoesPage() {
             </select>
 
             {equipeSel?.evento_modalidades && (
-              <div style={{ padding: 10, borderRadius: 10, border: "1px solid #eee" }}>
-                <div style={{ fontWeight: 900 }}>{equipeSel.evento_modalidades.modalidades?.nome ?? "Modalidade"}</div>
+              <div style={{ padding: 12, borderRadius: 12, border: "1px solid #eee", background: "#fafafa" }}>
+                <div style={{ fontWeight: 900, marginBottom: 4 }}>{equipeSel.evento_modalidades.modalidades?.nome ?? "Modalidade"}</div>
                 <div style={{ fontSize: 13, opacity: 0.85 }}>
                   Categoria: <b>{equipeSel.evento_modalidades.categoria}</b> • Naipe:{" "}
-                  <b>{equipeSel.evento_modalidades.naipe === "M" ? "Masc" : "Fem"}</b>
+                  <b>{equipeSel.evento_modalidades.naipe === "M" ? "Masculino" : "Feminino"}</b>
+                </div>
+                <div style={{ fontSize: 12, opacity: 0.7, marginTop: 6 }}>
+                  Apenas atletas com <b>Docs CONCLUÍDO</b> + categoria/naipe compatíveis aparecem para ENTRAR.
                 </div>
               </div>
             )}
-
-            <select
-              value={saidaId}
-              onChange={(e) => setSaidaId(e.target.value)}
-              style={{ padding: 10, borderRadius: 10, border: "1px solid #ccc" }}
-              disabled={!equipeId}
-            >
-              <option value="">Atleta que SAI...</option>
-              {membrosDetalhe.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.nome}
-                </option>
-              ))}
-            </select>
-
-            <textarea
-              placeholder="Motivo (ex: lesão — laudo anexado)"
-              value={motivo}
-              onChange={(e) => setMotivo(e.target.value)}
-              style={{ padding: 10, minHeight: 90, borderRadius: 10, border: "1px solid #ccc" }}
-              disabled={!equipeId}
-            />
-
-            <div style={{ borderTop: "1px solid #eee", paddingTop: 10 }}>
-              <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>
-                Anexar laudo (PDF/JPG/PNG) e enviar solicitação:
-              </div>
-
-              <input
-                type="file"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) enviarLaudoEsolicitar(f);
-                  e.currentTarget.value = "";
-                }}
-                disabled={!podeEnviar}
-              />
-
-              <div style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>
-                Para habilitar: selecione evento, equipe, atleta que sai, atleta que entra e escreva o motivo.
-              </div>
-            </div>
           </div>
         </div>
 
-        {/* DIREITA */}
-        <div style={{ border: "1px solid #eee", borderRadius: 12, background: "#fff" }}>
-          <div style={{ padding: 12, fontWeight: 900 }}>Buscar atleta que ENTRA</div>
+        {/* PASSO 3: SAÍDA (membros) */}
+        <div style={{ border: "1px solid #eee", borderRadius: 12, background: "#fff", overflow: "hidden" }}>
+          <div style={{ padding: 12, fontWeight: 900, borderBottom: "1px solid #eee" }}>3) Escolha quem SAI (membros atuais)</div>
+
+          {!equipeId && <div style={{ padding: 12, opacity: 0.8 }}>Selecione uma equipe para listar os membros.</div>}
+          {equipeId && membrosDetalhe.length === 0 && <div style={{ padding: 12 }}>Nenhum membro encontrado.</div>}
+
+          {equipeId &&
+            membrosDetalhe.map((a) => {
+              const selecionado = String(saidaId) === String(a.id);
+              return (
+                <div
+                  key={a.id}
+                  style={{
+                    padding: 12,
+                    borderTop: "1px solid #eee",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 10,
+                    background: selecionado ? "#f6ffed" : "#fff",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 900 }}>{a.nome}</div>
+                    <div style={{ fontSize: 12, opacity: 0.75 }}>
+                      {a.sexo} • {calcCategoria(a.data_nascimento)} • Docs: <b>{a.doc_status ?? "PENDENTE"}</b>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => setSaidaId(String(a.id))}
+                    style={{
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      border: "1px solid #ddd",
+                      cursor: "pointer",
+                      fontWeight: 800,
+                      opacity: equipeId ? 1 : 0.6,
+                    }}
+                    disabled={!equipeId}
+                    title="Selecionar este atleta para SAIR"
+                  >
+                    {selecionado ? "✅ Selecionado" : "Selecionar saída"}
+                  </button>
+                </div>
+              );
+            })}
+        </div>
+      </div>
+
+      {/* COLUNA DIREITA: ENTRADA + MOTIVO/LAUDO */}
+      <div style={{ display: "grid", gap: 14 }}>
+        {/* PASSO 4: ENTRADA */}
+        <div style={{ border: "1px solid #eee", borderRadius: 12, background: "#fff", overflow: "hidden" }}>
+          <div style={{ padding: 12, fontWeight: 900, borderBottom: "1px solid #eee" }}>4) Escolha quem ENTRA</div>
 
           <div style={{ padding: 12, display: "grid", gap: 10 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div>
-                <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 4 }}>Nome</div>
+                <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>Nome</div>
                 <input
                   placeholder="Pesquise..."
                   value={qNome}
                   onChange={(e) => setQNome(e.target.value)}
-                  style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid #ccc" }}
+                  style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid #ddd" }}
                   disabled={!equipeId}
                 />
               </div>
 
               <div>
-                <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 4 }}>CPF</div>
+                <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>CPF</div>
                 <input
-                  placeholder="Informe o CPF"
+                  placeholder="Somente números"
                   value={qCpf}
                   onChange={(e) => setQCpf(onlyDigits(e.target.value))}
-                  style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid #ccc" }}
+                  style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid #ddd" }}
                   disabled={!equipeId}
                 />
               </div>
@@ -658,7 +668,7 @@ export default function GestorSubstituicoesPage() {
               size={10}
               value={atletaSelId}
               onChange={(e) => setAtletaSelId(e.target.value)}
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid #ccc" }}
+              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid #ddd" }}
               disabled={!equipeId}
             >
               {carregandoAtletas && <option>Carregando...</option>}
@@ -681,62 +691,74 @@ export default function GestorSubstituicoesPage() {
               }}
               disabled={!equipeId || !atletaSelId}
               style={{
-                padding: 10,
+                padding: 12,
                 borderRadius: 10,
+                border: "1px solid #ddd",
                 cursor: !equipeId || !atletaSelId ? "not-allowed" : "pointer",
                 opacity: !equipeId || !atletaSelId ? 0.6 : 1,
+                fontWeight: 900,
               }}
             >
-              Selecionar atleta para ENTRAR
+              ✅ Confirmar atleta de ENTRADA
             </button>
 
             <div style={{ fontSize: 12, opacity: 0.75 }}>
               Mostrando <b>{Math.min(candidatosEntrada.length, 50)}</b> resultados (Top 10 no início).
             </div>
+          </div>
+        </div>
 
-            <div style={{ marginTop: 8, padding: 10, borderRadius: 10, border: "1px solid #eee" }}>
-              <div style={{ fontWeight: 900, marginBottom: 4 }}>Resumo</div>
+        {/* PASSO 5: MOTIVO + LAUDO + ENVIAR */}
+        <div style={{ border: "1px solid #eee", borderRadius: 12, background: "#fff", overflow: "hidden" }}>
+          <div style={{ padding: 12, fontWeight: 900, borderBottom: "1px solid #eee" }}>5) Motivo, laudo e envio</div>
+
+          <div style={{ padding: 12, display: "grid", gap: 10 }}>
+            <div style={{ padding: 12, borderRadius: 12, border: "1px solid #eee", background: "#fafafa" }}>
+              <div style={{ fontWeight: 900, marginBottom: 6 }}>Resumo</div>
               <div style={{ fontSize: 13, opacity: 0.85 }}>
-                Saída: <b>{saidaId ? membrosDetalhe.find((x) => String(x.id) === String(saidaId))?.nome ?? "—" : "—"}</b>
+                Saída:{" "}
+                <b>{saidaId ? membrosDetalhe.find((x) => String(x.id) === String(saidaId))?.nome ?? "—" : "—"}</b>
               </div>
               <div style={{ fontSize: 13, opacity: 0.85 }}>
-                Entrada: <b>{entradaId ? candidatosEntrada.find((x) => String(x.id) === String(entradaId))?.nome ?? "—" : "—"}</b>
+                Entrada:{" "}
+                <b>{entradaId ? candidatosEntrada.find((x) => String(x.id) === String(entradaId))?.nome ?? "—" : "—"}</b>
               </div>
+            </div>
+
+            <textarea
+              placeholder="Motivo (ex: lesão — laudo anexado)"
+              value={motivo}
+              onChange={(e) => setMotivo(e.target.value)}
+              style={{ padding: 12, minHeight: 110, borderRadius: 10, border: "1px solid #ddd" }}
+              disabled={!equipeId}
+            />
+
+            <div style={{ fontSize: 12, opacity: 0.8 }}>
+              Anexe o laudo (PDF/JPG/PNG). O envio só libera quando tudo estiver preenchido.
+            </div>
+
+            <input
+              type="file"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) enviarLaudoEsolicitar(f);
+                e.currentTarget.value = "";
+              }}
+              disabled={!podeEnviar}
+            />
+
+            <div style={{ fontSize: 12, opacity: 0.7 }}>
+              Para habilitar: selecione <b>evento</b>, <b>equipe</b>, <b>saída</b>, <b>entrada</b> e informe o <b>motivo</b>.
             </div>
           </div>
         </div>
       </div>
+    </div>
 
-      {/* MEMBROS */}
-      <div style={{ marginTop: 14, border: "1px solid #eee", borderRadius: 12, background: "#fff" }}>
-        <div style={{ padding: 12, fontWeight: 900 }}>Membros atuais da equipe</div>
-        {!equipeId && <div style={{ padding: 12 }}>Selecione uma equipe para ver os membros.</div>}
-        {equipeId && membrosDetalhe.length === 0 && <div style={{ padding: 12 }}>Nenhum membro encontrado.</div>}
-
-        {equipeId &&
-          membrosDetalhe.map((a) => (
-            <div
-              key={a.id}
-              style={{ padding: 12, borderTop: "1px solid #eee", display: "flex", justifyContent: "space-between", gap: 10 }}
-            >
-              <div>
-                <div style={{ fontWeight: 900 }}>{a.nome}</div>
-                <div style={{ fontSize: 12, opacity: 0.75 }}>
-                  {a.sexo} • {calcCategoria(a.data_nascimento)} • Docs: <b>{a.doc_status ?? "PENDENTE"}</b>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setSaidaId(String(a.id))}
-                style={{ padding: 10, borderRadius: 10, cursor: "pointer" }}
-                disabled={!equipeId}
-                title="Selecionar este atleta para SAIR"
-              >
-                Selecionar saída
-              </button>
-            </div>
-          ))}
-      </div>
-    </main>
-  );
+    {/* RESPONSIVO SIMPLES */}
+    <div style={{ marginTop: 10, fontSize: 12, opacity: 0.6 }}>
+      Dica: em telas pequenas, você pode trocar o grid por coluna única (se quiser, eu já te mando a versão com CSS responsivo).
+    </div>
+  </main>
+);
 }
