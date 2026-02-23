@@ -150,18 +150,33 @@ export default function AdminConferenciaPage() {
   }
 
   async function setStatus(ids: number[], status: Row["status"], obsAdmin?: string) {
-    setMsg("");
-    if (ids.length === 0) return setMsg("Selecione pelo menos 1 item.");
+  setMsg("");
+  if (ids.length === 0) return setMsg("Selecione pelo menos 1 item.");
 
-    const payload: any = { status, observacao_admin: obsAdmin ?? null };
+  const payload: any = { status, observacao_admin: obsAdmin ?? null };
 
-    // atualiza a tabela real
-    const { error } = await supabase.from("participante_arquivos").update(payload).in("id", ids);
-    if (error) return setMsg("Erro ao atualizar: " + error.message);
+  // trava botões visualmente
+  setLoading(true);
 
-    setMsg(`Atualizado ✅ (${ids.length}) → ${status}`);
-    await carregar();
+  const { data, error } = await supabase
+    .from("participante_arquivos")
+    .update(payload)
+    .in("id", ids)
+    .select("id, status"); // <- força retornar linhas atualizadas
+
+  setLoading(false);
+
+  if (error) return setMsg("Erro ao atualizar: " + error.message);
+
+  if (!data || data.length === 0) {
+    return setMsg(
+      "Não atualizou nada. Provável: RLS bloqueando UPDATE na tabela participante_arquivos."
+    );
   }
+
+  setMsg(`Atualizado ✅ (${data.length}) → ${status}`);
+  await carregar();
+}
 
   async function concluirSelecionados() {
     const ids = Array.from(selecionados);
@@ -372,17 +387,17 @@ export default function AdminConferenciaPage() {
           Selecionados: <b>{selecionados.size}</b>
         </div>
 
-        <button onClick={concluirSelecionados} style={styles.btn}>
-          Marcar CONCLUÍDO ✅
+        <button type="button" onClick={concluirSelecionados} style={styles.btn}>
+        Marcar CONCLUÍDO ✅
         </button>
-        <button onClick={devolverPendenciaSelecionados} style={styles.btn}>
+        <button type="button" onClick={devolverPendenciaSelecionados} style={styles.btn}>
           Voltar para PENDENTE ↩️
         </button>
-        <button onClick={rejeitarSelecionados} style={styles.btn}>
+        <button type="button" onClick={rejeitarSelecionados} style={styles.btn}>
           Marcar REJEITADO ❌
         </button>
 
-        <button onClick={carregar} style={styles.btn}>
+        <button type="button" onClick={carregar} style={styles.btn}>
           Recarregar
         </button>
 
@@ -435,12 +450,12 @@ export default function AdminConferenciaPage() {
               </div>
 
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <button onClick={() => setStatus([r.id], "CONCLUIDO")} style={styles.btnSm}>
+                <button type="button" onClick={() => setStatus([r.id], "CONCLUIDO")} style={styles.btnSm}>
                   Concluir
                 </button>
 
                 <button
-                  onClick={() => {
+                  type="button" onClick={() => {
                     const obs = prompt("Observação para o gestor (opcional):") || "";
                     setStatus([r.id], "PENDENTE", obs);
                   }}
@@ -450,7 +465,7 @@ export default function AdminConferenciaPage() {
                 </button>
 
                 <button
-                  onClick={() => {
+                  type="button"onClick={() => {
                     const obs = prompt("Motivo da rejeição (obrigatório):") || "";
                     if (!obs.trim()) return;
                     setStatus([r.id], "REJEITADO", obs.trim());

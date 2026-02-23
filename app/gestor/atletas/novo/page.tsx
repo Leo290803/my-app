@@ -258,6 +258,7 @@ export default function NovoAtletaPage() {
               className="h-11 rounded-xl border bg-white px-3 outline-none focus:ring-2"
               placeholder="Nome completo"
             />
+            
           </Field>
 
           <Field label="Sexo">
