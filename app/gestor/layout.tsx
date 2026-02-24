@@ -42,6 +42,7 @@ Gestor
 <NavLink href="/gestor/atletas" label="Cadastro de Atletas" />
 <NavLink href="/gestor/equipe" label="Cadastro de Comissão Técnica" />
 <NavLink href="/gestor/inscricoes" label="Inscrições" />
+<NavLink href="/gestor/conferencia" label="Conferência" />
 <NavLink href="/gestor/substituicoes" label="Substituições" />
 
 </div>

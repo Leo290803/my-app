@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../../lib/supabaseClient";
 
 type Escola = {
@@ -86,19 +86,20 @@ export default function AdminConferenciaPage() {
   }
 
   async function carregarFiltros() {
-    setMsg("");
-
+    // NÃO limpa msg aqui pra não "apagar" feedback enquanto carrega filtros
     const m = await supabase.from("municipios").select("id, nome").order("nome");
     if (m.error) setMsg("Erro municípios: " + m.error.message);
     setMunicipios((m.data ?? []) as any);
 
-    const e = await supabase.from("escolas").select("id, nome, municipio_id, municipios(nome)").order("nome");
+    const e = await supabase
+      .from("escolas")
+      .select("id, nome, municipio_id, municipios(nome)")
+      .order("nome");
     if (e.error) setMsg("Erro escolas: " + e.error.message);
     setEscolas((e.data ?? []) as any);
   }
 
   async function carregar() {
-    setMsg("");
     setLoading(true);
     setSelecionados(new Set());
 
@@ -150,32 +151,57 @@ export default function AdminConferenciaPage() {
   }
 
   async function setStatus(ids: number[], status: Row["status"], obsAdmin?: string) {
+  if (ids.length === 0) {
+    setMsg("Selecione pelo menos 1 item.");
+    return;
+  }
+
   setMsg("");
-  if (ids.length === 0) return setMsg("Selecione pelo menos 1 item.");
+  setLoading(true);
 
   const payload: any = { status, observacao_admin: obsAdmin ?? null };
-
-  // trava botões visualmente
-  setLoading(true);
 
   const { data, error } = await supabase
     .from("participante_arquivos")
     .update(payload)
     .in("id", ids)
-    .select("id, status"); // <- força retornar linhas atualizadas
+    .select("id, status");
 
   setLoading(false);
 
-  if (error) return setMsg("Erro ao atualizar: " + error.message);
-
-  if (!data || data.length === 0) {
-    return setMsg(
-      "Não atualizou nada. Provável: RLS bloqueando UPDATE na tabela participante_arquivos."
-    );
+  if (error) {
+    setMsg("Erro ao atualizar: " + error.message);
+    return;
   }
 
-  setMsg(`Atualizado ✅ (${data.length}) → ${status}`);
+  if (!data || data.length === 0) {
+    setMsg("Não atualizou nada. Provável: RLS bloqueando UPDATE na tabela participante_arquivos.");
+    return;
+  }
+
+  // ✅ Atualiza a UI imediatamente (mesmo que a VIEW não reflita)
+  setRows((prev) =>
+    prev.map((r) =>
+      ids.includes(r.id)
+        ? {
+            ...r,
+            status,
+            observacao_admin: obsAdmin ?? null,
+            updated_at: new Date().toISOString(),
+          }
+        : r
+    )
+  );
+
+  // ✅ Se estava filtrando PENDENTE e mudou pra outro status, mostra "Todos"
+  if (fStatus === "PENDENTE" && status !== "PENDENTE") {
+    setFStatus(""); // Todos
+  }
+
+  // (Opcional) recarregar pra garantir consistência
   await carregar();
+
+  setMsg(`Atualizado ✅ (${data.length}) → ${status}`);
 }
 
   async function concluirSelecionados() {
@@ -204,6 +230,7 @@ export default function AdminConferenciaPage() {
 
   useEffect(() => {
     carregarFiltros();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -245,8 +272,7 @@ export default function AdminConferenciaPage() {
         fontSize: 12,
         fontWeight: 800,
         border: "1px solid #eee",
-        background:
-          status === "PENDENTE" ? "#fff7ed" : status === "CONCLUIDO" ? "#ecfdf5" : "#fef2f2",
+        background: status === "PENDENTE" ? "#fff7ed" : status === "CONCLUIDO" ? "#ecfdf5" : "#fef2f2",
       }) as React.CSSProperties,
     linkPill: {
       display: "inline-flex",
@@ -388,7 +414,7 @@ export default function AdminConferenciaPage() {
         </div>
 
         <button type="button" onClick={concluirSelecionados} style={styles.btn}>
-        Marcar CONCLUÍDO ✅
+          Marcar CONCLUÍDO ✅
         </button>
         <button type="button" onClick={devolverPendenciaSelecionados} style={styles.btn}>
           Voltar para PENDENTE ↩️
@@ -455,7 +481,8 @@ export default function AdminConferenciaPage() {
                 </button>
 
                 <button
-                  type="button" onClick={() => {
+                  type="button"
+                  onClick={() => {
                     const obs = prompt("Observação para o gestor (opcional):") || "";
                     setStatus([r.id], "PENDENTE", obs);
                   }}
@@ -465,7 +492,8 @@ export default function AdminConferenciaPage() {
                 </button>
 
                 <button
-                  type="button"onClick={() => {
+                  type="button"
+                  onClick={() => {
                     const obs = prompt("Motivo da rejeição (obrigatório):") || "";
                     if (!obs.trim()) return;
                     setStatus([r.id], "REJEITADO", obs.trim());
